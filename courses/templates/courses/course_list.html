@@ -1,0 +1,48 @@
+{% extends "courses/base.html" %}
+{% block title %}Courses · education-os{% endblock %}
+{% block content %}
+  <div class="actions" style="justify-content:space-between;">
+    <h1 style="margin:0;">Courses</h1>
+    <a class="btn" href="{% url 'courses:create' %}">+ New course</a>
+  </div>
+
+  {% if object_list %}
+  <table>
+    <thead>
+      <tr>
+        <th>Code</th><th>Title</th><th>Instructor</th>
+        <th>Level</th><th>Credits</th><th>Active</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for course in object_list %}
+      <tr>
+        <td><a href="{% url 'courses:detail' course.pk %}">{{ course.code }}</a></td>
+        <td>{{ course.title }}</td>
+        <td>{{ course.instructor|default:"—" }}</td>
+        <td><span class="badge">{{ course.get_level_display }}</span></td>
+        <td>{{ course.credits }}</td>
+        <td>{% if course.is_active %}✅{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if is_paginated %}
+    <div class="actions">
+      {% if page_obj.has_previous %}
+        <a class="btn secondary" href="?page={{ page_obj.previous_page_number }}">← Prev</a>
+      {% endif %}
+      <span class="muted">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+      {% if page_obj.has_next %}
+        <a class="btn secondary" href="?page={{ page_obj.next_page_number }}">Next →</a>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% else %}
+    <div class="card">
+      <p class="muted">No courses yet. <a href="{% url 'courses:create' %}">Create the first one →</a></p>
+    </div>
+  {% endif %}
+{% endblock %}

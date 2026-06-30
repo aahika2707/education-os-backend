@@ -1,0 +1,22 @@
+{% extends "courses/base.html" %}
+{% block title %}{{ course.code }} · education-os{% endblock %}
+{% block content %}
+  <p><a class="muted" href="{% url 'courses:list' %}">← All courses</a></p>
+  <div class="card">
+    <h1 style="margin-top:0;">{{ course.code }} — {{ course.title }}</h1>
+    <p>
+      <span class="badge">{{ course.get_level_display }}</span>
+      · {{ course.credits }} credits
+      · {% if course.is_active %}Active{% else %}Inactive{% endif %}
+    </p>
+    <p><strong>Instructor:</strong> {{ course.instructor|default:"—" }}</p>
+    <p>{{ course.description|linebreaksbr|default:"No description." }}</p>
+    <p class="muted" style="font-size:.8rem;">
+      Created {{ course.created_at }} · Updated {{ course.updated_at }}
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn" href="{% url 'courses:update' course.pk %}">Edit</a>
+    <a class="btn danger" href="{% url 'courses:delete' course.pk %}">Delete</a>
+  </div>
+{% endblock %}

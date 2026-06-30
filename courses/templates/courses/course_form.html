@@ -1,0 +1,16 @@
+{% extends "courses/base.html" %}
+{% block title %}{% if form.instance.pk %}Edit{% else %}New{% endif %} course · education-os{% endblock %}
+{% block content %}
+  <p><a class="muted" href="{% url 'courses:list' %}">← All courses</a></p>
+  <h1>{% if form.instance.pk %}Edit course{% else %}New course{% endif %}</h1>
+  <div class="card">
+    <form method="post" novalidate>
+      {% csrf_token %}
+      {{ form.as_p }}
+      <div class="actions">
+        <button class="btn" type="submit">Save</button>
+        <a class="btn secondary" href="{% url 'courses:list' %}">Cancel</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

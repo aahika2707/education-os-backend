@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}education-os{% endblock %}</title>
+  <style>
+    :root { --bg:#0f172a; --accent:#6366f1; --muted:#94a3b8; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:#f8fafc; color:#0f172a; }
+    header { background: var(--bg); color:#fff; }
+    header a { color:#fff; text-decoration:none; font-weight:600; font-size:1.1rem; }
+    .wrap { max-width: 900px; margin:0 auto; padding: 1.25rem 1.5rem; }
+    .btn { display:inline-block; padding:.5rem .9rem; border-radius:8px; background:var(--accent); color:#fff; text-decoration:none; border:0; cursor:pointer; font-size:.95rem; }
+    .btn.secondary { background:#e2e8f0; color:#0f172a; }
+    .btn.danger { background:#dc2626; color:#fff; }
+    table { width:100%; border-collapse:collapse; background:#fff; border-radius:10px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+    th, td { text-align:left; padding:.7rem .9rem; border-bottom:1px solid #e2e8f0; }
+    th { background:#f1f5f9; font-size:.75rem; text-transform:uppercase; letter-spacing:.03em; color:#475569; }
+    tr:last-child td { border-bottom:0; }
+    .card { background:#fff; border-radius:10px; padding:1.25rem; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+    form p { margin:.65rem 0; }
+    label { font-weight:600; display:block; margin-bottom:.2rem; }
+    input, textarea, select { width:100%; padding:.5rem; border:1px solid #cbd5e1; border-radius:6px; font-size:1rem; font-family:inherit; }
+    input[type=checkbox] { width:auto; }
+    .helptext { color:var(--muted); font-size:.8rem; }
+    .messages { list-style:none; padding:0; margin:0 0 1rem; }
+    .messages li { padding:.6rem .9rem; border-radius:8px; margin-bottom:.5rem; background:#dcfce7; color:#166534; }
+    .actions { display:flex; gap:.5rem; align-items:center; margin:1rem 0; flex-wrap:wrap; }
+    .muted { color:var(--muted); text-decoration:none; }
+    .badge { font-size:.75rem; padding:.15rem .55rem; border-radius:999px; background:#e0e7ff; color:#3730a3; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap"><a href="{% url 'courses:list' %}">🎓 education-os</a></div>
+  </header>
+  <main class="wrap">
+    {% if messages %}
+      <ul class="messages">
+        {% for message in messages %}<li>{{ message }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
