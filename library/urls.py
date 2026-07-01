@@ -17,7 +17,7 @@ from library.views import BookLoanViewSet, BookViewSet
 
 app_name = "library"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("library/books-admin", BookViewSet, basename="book")
 router.register("library/loans-admin", BookLoanViewSet, basename="book-loan")
 

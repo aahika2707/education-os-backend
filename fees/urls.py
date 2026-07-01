@@ -11,7 +11,7 @@ from fees.views import FeeInvoiceViewSet
 
 app_name = "fees"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("fees", FeeInvoiceViewSet, basename="fee")
 
 urlpatterns = router.urls

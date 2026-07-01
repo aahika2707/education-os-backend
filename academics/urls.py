@@ -15,7 +15,7 @@ from academics.views import (
 
 app_name = "academics"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("departments", DepartmentViewSet, basename="department")
 router.register("programs", ProgramViewSet, basename="program")
 router.register("semesters", SemesterViewSet, basename="semester")

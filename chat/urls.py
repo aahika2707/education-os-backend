@@ -12,7 +12,7 @@ from chat.views import ChatThreadViewSet
 
 app_name = "chat"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("chat/threads", ChatThreadViewSet, basename="chat-threads")
 
 urlpatterns = router.urls

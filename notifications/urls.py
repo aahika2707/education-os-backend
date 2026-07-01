@@ -9,7 +9,7 @@ from notifications.views import NotificationViewSet
 
 app_name = "notifications"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("notifications", NotificationViewSet, basename="notification")
 
 urlpatterns = router.urls

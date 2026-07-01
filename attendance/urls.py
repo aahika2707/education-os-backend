@@ -28,7 +28,7 @@ app_name = "attendance"
 # Admin CRUD surface for raw AttendanceRecord rows (not part of the mobile
 # contract but the standard management surface for this domain). Mounted under
 # ``attendance/manage`` so the contract's ``/attendance/records`` GET stays free.
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("attendance/manage", AttendanceViewSet, basename="attendance-manage")
 
 urlpatterns = [

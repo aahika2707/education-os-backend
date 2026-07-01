@@ -8,7 +8,7 @@ from materials.views import MaterialViewSet
 
 app_name = "materials"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("materials", MaterialViewSet, basename="materials")
 
 urlpatterns = router.urls

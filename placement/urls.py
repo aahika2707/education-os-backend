@@ -20,7 +20,7 @@ from placement.views import PlacementApplicationViewSet, PlacementOpeningViewSet
 
 app_name = "placement"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("placements-admin", PlacementOpeningViewSet, basename="opening")
 router.register(
     "placement-applications",

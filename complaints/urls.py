@@ -8,7 +8,7 @@ from complaints.views import ComplaintViewSet
 
 app_name = "complaints"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("complaints", ComplaintViewSet, basename="complaints")
 
 urlpatterns = router.urls

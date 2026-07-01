@@ -9,7 +9,7 @@ from faculty.views import FacultyProfileViewSet
 
 app_name = "faculty"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("faculty", FacultyProfileViewSet, basename="faculty")
 
 urlpatterns = router.urls

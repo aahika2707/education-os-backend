@@ -21,7 +21,7 @@ from dashboards.views import (
 
 app_name = "dashboards"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("students", StudentDashboardViewSet, basename="student-dashboard")
 router.register("parent", ParentDashboardViewSet, basename="parent-dashboard")
 router.register("faculty", FacultyDashboardViewSet, basename="faculty-dashboard")

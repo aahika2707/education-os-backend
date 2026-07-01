@@ -12,7 +12,7 @@ from leave.views import LeaveRequestViewSet
 
 app_name = "leave"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("leaves", LeaveRequestViewSet, basename="leaves")
 
 urlpatterns = [

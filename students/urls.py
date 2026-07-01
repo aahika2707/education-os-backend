@@ -17,7 +17,7 @@ from students.views import (
 
 app_name = "students"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("students", StudentViewSet, basename="student")
 router.register("student-addresses", StudentAddressViewSet, basename="student-address")
 router.register("student-guardians", GuardianViewSet, basename="student-guardian")

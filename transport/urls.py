@@ -12,7 +12,7 @@ from transport.views import (
 
 app_name = "transport"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("transport/routes", BusRouteViewSet, basename="busroute")
 router.register("transport/stops", BusStopViewSet, basename="busstop")
 router.register("transport/live-status", BusLiveStatusViewSet, basename="buslivestatus")

@@ -16,7 +16,7 @@ from hostel.views import (
 
 app_name = "hostel"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 # `hostel` is the allocation collection; its `info` action serves GET /hostel.
 router.register("hostel", HostelAllocationViewSet, basename="hostel-allocation")
 router.register("hostel-blocks", HostelBlockViewSet, basename="hostel-block")

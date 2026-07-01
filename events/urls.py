@@ -16,7 +16,7 @@ from events.views import EventViewSet
 
 app_name = "events"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("events-admin", EventViewSet, basename="event-admin")
 
 urlpatterns = [

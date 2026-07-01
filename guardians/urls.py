@@ -8,7 +8,7 @@ from guardians.views import ParentLinkViewSet
 
 app_name = "guardians"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("guardians", ParentLinkViewSet, basename="guardians")
 
 urlpatterns = router.urls

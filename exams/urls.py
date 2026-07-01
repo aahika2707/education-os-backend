@@ -18,7 +18,7 @@ from exams.views import ExamResultViewSet, ExamViewSet, MarksSheetViewSet
 
 app_name = "exams"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("exams", ExamViewSet, basename="exams")
 router.register("results", ExamResultViewSet, basename="results")
 

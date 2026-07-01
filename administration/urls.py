@@ -20,7 +20,7 @@ from administration.views import (
 
 app_name = "administration"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("admin/audit-logs", AuditLogViewSet, basename="admin-audit-logs")
 router.register("admin/users", AdminUserViewSet, basename="admin-users")
 

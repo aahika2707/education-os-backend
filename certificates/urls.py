@@ -16,7 +16,7 @@ from certificates.views import CertificateViewSet
 
 app_name = "certificates"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("certificates-admin", CertificateViewSet, basename="certificate")
 
 urlpatterns = [

@@ -7,7 +7,7 @@ from quizzes.views import QuizViewSet
 
 app_name = "quizzes"
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register("quizzes", QuizViewSet, basename="quizzes")
 
 urlpatterns = router.urls
