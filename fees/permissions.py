@@ -26,6 +26,9 @@ READERS = [
 ]
 # Who may hit POST /fees/{id}/pay: parents (for their child) and admins.
 PAYERS = [Role.SUPER_ADMIN, Role.ADMIN, Role.PARENT]
+# Who may hit the mobile-contract POST /fees/payment: the student pays their own
+# fees from the app, parents pay for a child, admins record any payment.
+SPEC_PAYERS = [Role.SUPER_ADMIN, Role.ADMIN, Role.PARENT, Role.STUDENT]
 
 FEE_MATRIX = {
     "list": READERS,
@@ -37,6 +40,10 @@ FEE_MATRIX = {
     "pay": PAYERS,
     # total-due: any reader gets a scoped total.
     "total_due": READERS,
+    # Mobile API contract v1 actions ({user_id}-parameterized, snake_case).
+    "by_user": READERS,          # GET /api/v1/fees/{user_id}
+    "make_payment": SPEC_PAYERS,  # POST /api/v1/fees/payment
+    "receipt": READERS,          # GET /api/v1/fees/receipt/{payment_id}
 }
 
 _STAFF_ROLES = set(Role.STAFF)

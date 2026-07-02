@@ -58,6 +58,11 @@ from dashboards.repositories import DashboardRepository
 # Cache-key prefix owned exclusively by this app.
 DASHBOARDS_PREFIX = "dashboards"
 
+# Mobile API contract v1 uses the ``dashboard:{user_id}`` key (TTL 30m) for the
+# spec-exact student dashboard (distinct from the legacy ``dashboards:*`` keys).
+DASHBOARD_SPEC_PREFIX = "dashboard"
+TTL_DASHBOARD_SPEC = 1800  # 30 minutes, per API_CONTRACT_V1 §Dashboard
+
 # How near a due date counts an assignment as "pending" on the faculty board.
 FACULTY_PENDING_HORIZON_DAYS = 3
 
@@ -103,6 +108,15 @@ def invalidate_parent_dashboards(parent_user_ids) -> None:
 def invalidate_faculty_dashboard(faculty_profile_id) -> None:
     """Bust one faculty member's cached dashboard."""
     invalidate(faculty_dashboard_key(faculty_profile_id))
+
+
+def student_dashboard_spec_key(user_id) -> str:
+    return cache_key(DASHBOARD_SPEC_PREFIX, user_id)
+
+
+def invalidate_student_dashboard_spec(user_id) -> None:
+    """Bust the contract ``dashboard:{user_id}`` cache entry."""
+    invalidate(student_dashboard_spec_key(user_id))
 
 
 def invalidate_all_dashboards() -> None:
@@ -161,6 +175,53 @@ class DashboardService:
         # Round-trip through the serializer so the cached value is the exact
         # JSON-ready dict the endpoint returns (and the OpenAPI shape).
         return StudentDashboardSerializer(payload).data
+
+    # -- Student (mobile API contract v1) -------------------------------------
+    def student_dashboard_spec(self, student, user_id) -> dict[str, Any]:
+        """Spec-exact student dashboard for ``GET /dashboard/student/{user_id}``.
+
+        Returns the snake_case shape from ``API_CONTRACT_V1`` §Dashboard, cached
+        under ``dashboard:{user_id}`` (TTL 30m). ``user_id`` is the accounts user
+        id used as the cache scope (the caller has already resolved + access-
+        checked the linked :class:`students.Student`).
+        """
+        return cache_get_or_set(
+            student_dashboard_spec_key(user_id),
+            TTL_DASHBOARD_SPEC,
+            lambda: self._build_student_dashboard_spec(student),
+        )
+
+    def _build_student_dashboard_spec(self, student) -> dict[str, Any]:
+        from dashboards.serializers import StudentDashboardSpecSerializer
+
+        gpa = ExamResultService(actor=self.actor).gpa_for_student(student.pk)
+        next_exam = self.repo.next_exam_for_student(student)
+        next_exam_block = (
+            {
+                "subject": next_exam.subject.name if next_exam.subject_id else "",
+                "time": next_exam.time,
+                "room": next_exam.room,
+            }
+            if next_exam is not None
+            else None
+        )
+        payload = {
+            "student_name": student.full_name,
+            "roll_no": student.roll_no,
+            "department": student.department.name if student.department_id else "",
+            "semester": student.semester.number if student.semester_id else 0,
+            "attendance_percentage": self.repo.attendance_percent(student),
+            "cgpa": gpa,
+            "pending_fees": self.repo.due_fees_total(student),
+            "pending_approvals": self.repo.pending_child_leaves(student),
+            "unread_chats": self.repo.unread_chat_count(student.user)
+            if student.user_id
+            else 0,
+            "next_exam": next_exam_block,
+        }
+        # Round-trip through the serializer so the cached value is the exact
+        # JSON-ready dict the endpoint returns (and the OpenAPI shape).
+        return StudentDashboardSpecSerializer(payload).data
 
     # -- Parent ---------------------------------------------------------------
     def parent_dashboard(self, parent_user) -> dict[str, Any]:

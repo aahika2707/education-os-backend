@@ -13,12 +13,15 @@ module exposes the REST reads now.
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.response import Response
 
 from core.cache import TTL_LIBRARY, cache_get_or_set, cache_key
+from core.permissions import Role
 from core.viewsets import BaseModelViewSet
+
+from students.models import Student
 
 from transport.models import BusLiveStatus, BusRoute, BusStop
 from transport.permissions import ADMIN_WRITE_MATRIX, TRANSPORT_MATRIX
@@ -28,7 +31,11 @@ from transport.serializers import (
     BusRouteAppSerializer,
     BusRouteSerializer,
     BusStopSerializer,
+    TransportSpecSerializer,
+    TransportStopSpecSerializer,
 )
+
+_STAFF_ROLES = set(Role.STAFF)
 from transport.services import (
     BusLiveStatusService,
     BusRouteService,
@@ -94,6 +101,64 @@ class BusRouteViewSet(BaseModelViewSet):
         )
         if data is None:
             raise NotFound("No live status available for this route.")
+        return Response(data)
+
+    # -- GET /api/v1/transport/{user_id} (mobile API contract v1) ------------
+    def _assert_user_access(self, request, user_id):
+        """Non-staff may only use their own accounts user id; staff any."""
+        if getattr(request.user, "role", None) in _STAFF_ROLES:
+            return
+        if str(request.user.id) != str(user_id):
+            raise PermissionDenied("You can only access your own transport info.")
+
+    @extend_schema(responses={200: TransportSpecSerializer})
+    def by_user(self, request, pk=None):
+        """Spec: ``{ route, driver, phone, live_location, eta, occupancy, stops }``.
+
+        The ``<uuid:pk>`` is the accounts user id. Resolves the student (access
+        checked) and returns their bus route with live status. No student↔route
+        allocation model exists yet (avoid new fields this phase), so the
+        college's primary route is returned; swap in the allocation lookup once
+        it lands. Cached under ``transport:student:{user_id}``.
+        """
+        self._assert_user_access(request, pk)
+        try:
+            student = Student.objects.get(user_id=pk)
+        except Student.DoesNotExist:
+            raise NotFound("No student profile is linked to this user.")
+
+        def build():
+            route = (
+                BusRoute.objects.prefetch_related("stops")
+                .order_by("number")
+                .first()
+            )
+            if route is None:
+                return None
+            live = BusLiveStatus.objects.filter(route_id=route.pk).first()
+            stops = TransportStopSpecSerializer(
+                route.stops.all(), many=True
+            ).data
+            return {
+                "route": route.name,
+                "driver": route.driver,
+                "phone": route.driver_phone,
+                "live_location": {
+                    "lat": live.lat if live else None,
+                    "lng": live.lng if live else None,
+                },
+                "eta": live.eta_mins if live else None,
+                "occupancy": live.occupancy if live else None,
+                "stops": stops,
+            }
+
+        data = cache_get_or_set(
+            cache_key(TRANSPORT_PREFIX, "student", student.user_id),
+            TTL_TRANSPORT,
+            build,
+        )
+        if data is None:
+            raise NotFound("No transport route is available.")
         return Response(data)
 
 

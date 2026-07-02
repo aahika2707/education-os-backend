@@ -104,6 +104,41 @@ class FeeInvoiceService(BaseService):
         self.invalidate_cache(invoice)
         return invoice
 
+    # -- payment + receipt (mobile contract) -----------------------------
+    @staticmethod
+    def receipt_no(payment: Payment) -> str:
+        """Deterministic human-friendly receipt number derived from a payment.
+
+        No stored ``receipt_no`` field yet (avoid new fields this phase); this
+        derives a stable number from the payment's date + UUID so the same
+        payment always yields the same receipt number.
+        """
+        return f"RCPT-{payment.paid_at:%Y%m%d}-{str(payment.pk)[:8].upper()}"
+
+    def record_payment(
+        self,
+        invoice: FeeInvoice,
+        amount: Decimal | None = None,
+        method: str = Payment.METHOD_OTHER,
+        reference: str = "",
+    ) -> tuple[FeeInvoice, Payment]:
+        """Record a payment via :meth:`pay` and return ``(invoice, payment)``.
+
+        Backs ``POST /api/v1/fees/payment``; the caller needs the created
+        Payment (for ``payment_id``/``receipt_no``) which :meth:`pay` does not
+        return.
+        """
+        invoice = self.pay(
+            invoice, amount=amount, method=method, reference=reference
+        )
+        payment = (
+            self.payments.get_queryset()
+            .filter(invoice_id=invoice.pk)
+            .order_by("-paid_at")
+            .first()
+        )
+        return invoice, payment
+
     # -- reporting -------------------------------------------------------
     def total_due(self, student_id=None) -> Decimal:
         return self.repository.total_due(student_id=student_id)

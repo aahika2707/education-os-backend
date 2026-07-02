@@ -71,6 +71,68 @@ class ExamResultService(BaseService):
             return 0.0
         return round(float(total_points / total_credits), 2)
 
+    @staticmethod
+    def _is_external(result) -> bool:
+        """Classify an :class:`ExamResult` as external (semester/end) vs internal.
+
+        Prefers the linked :class:`Exam` type; falls back to the free-form
+        ``exam`` label. Internal assessments + quizzes count as *internal*; the
+        semester/end examination counts as *external*.
+        """
+        ref = result.exam_ref
+        if ref is not None:
+            return ref.type == Exam.TYPE_SEMESTER
+        label = (result.exam or "").lower()
+        return any(k in label for k in ("semester", "external", "final", "end"))
+
+    def subject_marks_for_student(self, student_id):
+        """Per-subject marks breakdown for the mobile ``GET /marks/{user_id}``.
+
+        Returns ``[{subject, internal, external, total, grade}]`` (snake_case per
+        the contract). Internal/external marks are summed from the student's
+        :class:`ExamResult` rows for each subject; ``grade`` prefers the external
+        (semester) grade, otherwise the first available grade.
+        """
+        results = (
+            ExamResult.objects.filter(student_id=student_id)
+            .select_related("subject", "exam_ref")
+            .order_by("subject__code")
+        )
+        by_subject: dict = {}
+        for r in results:
+            entry = by_subject.setdefault(
+                r.subject_id,
+                {
+                    "subject": r.subject.name if r.subject else "",
+                    "internal": Decimal("0"),
+                    "external": Decimal("0"),
+                    "grade": "",
+                },
+            )
+            marks = r.marks or Decimal("0")
+            if self._is_external(r):
+                entry["external"] += marks
+                if r.grade:
+                    entry["grade"] = r.grade
+            else:
+                entry["internal"] += marks
+                if not entry["grade"] and r.grade:
+                    entry["grade"] = r.grade
+
+        subjects = []
+        for entry in by_subject.values():
+            total = entry["internal"] + entry["external"]
+            subjects.append(
+                {
+                    "subject": entry["subject"],
+                    "internal": float(entry["internal"]),
+                    "external": float(entry["external"]),
+                    "total": float(total),
+                    "grade": entry["grade"],
+                }
+            )
+        return subjects
+
 
 class MarksSheetService(BaseService):
     model = MarksSheet

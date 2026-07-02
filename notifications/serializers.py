@@ -44,6 +44,22 @@ class NotificationAppSerializer(serializers.ModelSerializer):
         fields = ["id", "title", "body", "category", "createdAt", "read"]
 
 
+class NotificationSpecSerializer(serializers.ModelSerializer):
+    """Spec (mobile API contract) shape — snake_case.
+
+    ``GET /api/v1/notifications/{user_id}`` returns a list of these:
+    ``{ id, title, body, category, is_read, created_at }``.
+    """
+
+    id = serializers.CharField(read_only=True)
+    is_read = serializers.BooleanField(source="read", read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = Notification
+        fields = ["id", "title", "body", "category", "is_read", "created_at"]
+
+
 class UnreadCountSerializer(serializers.Serializer):
     """``{ count: number }`` response for the unread-count endpoint."""
 

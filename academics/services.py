@@ -8,6 +8,10 @@ invalidate the relevant cached views. Timetable and subject reads are cached
 """
 from __future__ import annotations
 
+from collections import OrderedDict
+from decimal import Decimal
+from typing import Any
+
 from core.cache import invalidate_prefix
 from core.services import BaseService
 
@@ -78,3 +82,127 @@ class ClassSessionService(BaseService):
 
     def invalidate_cache(self, instance=None) -> None:
         invalidate_prefix(TIMETABLE_PREFIX)
+
+
+# --- Read-only per-student academic services (mobile API contract v1) --------
+class AcademicRecordService:
+    """Builds the student's academic record for ``GET /academics/{user_id}``.
+
+    Read-only aggregator (no writes to audit), so it does not extend
+    :class:`BaseService`. The caller resolves + access-checks the
+    :class:`students.Student`; this service only shapes the spec payload.
+    """
+
+    def __init__(self, actor=None, ip=None):
+        self.actor = actor
+        self.ip = ip
+
+    def academic_record(self, student) -> dict[str, Any]:
+        return {
+            "degree": student.program.name if student.program_id else "",
+            "department": student.department.name if student.department_id else "",
+            "semester": student.semester.number if student.semester_id else 0,
+            "section": student.section.name if student.section_id else "",
+            "mentor": student.mentor_name,
+            "cgpa": float(student.cgpa or 0),
+        }
+
+
+class AcademicProgressService:
+    """Builds academic-progress analytics for ``GET /progress/{user_id}``.
+
+    GPA trend + overall CGPA come from the student's :class:`exams.ExamResult`
+    rows (reusing :meth:`exams.services.ExamResultService.gpa_for_student` for the
+    credit-weighted overall CGPA); ``ai_insights`` are heuristic cards derived
+    from those same aggregates (no external LLM call).
+    """
+
+    def __init__(self, actor=None, ip=None):
+        self.actor = actor
+        self.ip = ip
+
+    def progress(self, student) -> dict[str, Any]:
+        from exams.services import ExamResultService
+
+        trend = self._gpa_trend(student.pk)
+        overall = ExamResultService(actor=self.actor).gpa_for_student(student.pk)
+        semester_gpa = trend[-1]["gpa"] if trend else overall
+        return {
+            "gpa_trend": trend,
+            "semester_gpa": semester_gpa,
+            "overall_cgpa": overall,
+            "ai_insights": self._ai_insights(student, trend, overall),
+        }
+
+    def _gpa_trend(self, student_id) -> list[dict[str, Any]]:
+        """Credit-weighted GPA per exam term for a student, in chronological order.
+
+        Groups the student's :class:`exams.ExamResult` rows by their ``exam``
+        term label (the app's per-term axis) and computes
+        Σ(grade_point·credits)/Σ(credits) per group.
+        """
+        from exams.models import ExamResult
+
+        rows = (
+            ExamResult.objects.filter(student_id=student_id)
+            .order_by("created_at")
+            .values_list("exam", "grade_point", "credits")
+        )
+        groups: "OrderedDict[str, list[Decimal]]" = OrderedDict()
+        for label, grade_point, credits in rows:
+            key = label or "—"
+            credits = credits or Decimal("0")
+            acc = groups.setdefault(key, [Decimal("0"), Decimal("0")])
+            acc[0] += (grade_point or Decimal("0")) * credits
+            acc[1] += credits
+        trend = []
+        for label, (points, total_credits) in groups.items():
+            gpa = round(float(points / total_credits), 2) if total_credits else 0.0
+            trend.append({"semester": label, "gpa": gpa})
+        return trend
+
+    def _ai_insights(self, student, trend, overall) -> list[dict[str, Any]]:
+        cards: list[dict[str, Any]] = []
+        if overall:
+            tone = "success" if overall >= 8 else "warning" if overall >= 6 else "danger"
+            cards.append(
+                {
+                    "id": "insight-cgpa",
+                    "title": "CGPA standing",
+                    "body": (
+                        f"Your overall CGPA is {overall}."
+                        + (
+                            " Excellent — keep it up."
+                            if overall >= 8
+                            else " Solid; a focused push can lift it further."
+                            if overall >= 6
+                            else " Below par; prioritise weaker subjects."
+                        )
+                    ),
+                    "tone": tone,
+                    "metric": str(overall),
+                }
+            )
+        if len(trend) >= 2:
+            delta = round(trend[-1]["gpa"] - trend[-2]["gpa"], 2)
+            if delta > 0:
+                cards.append(
+                    {
+                        "id": "insight-trend",
+                        "title": "Upward trend",
+                        "body": f"Your GPA rose {delta} since the previous term.",
+                        "tone": "success",
+                        "metric": f"+{delta}",
+                    }
+                )
+            elif delta < 0:
+                cards.append(
+                    {
+                        "id": "insight-trend",
+                        "title": "Dip in GPA",
+                        "body": f"Your GPA fell {abs(delta)} since the previous term.",
+                        "tone": "warning",
+                        "metric": str(delta),
+                    }
+                )
+        return cards

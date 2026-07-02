@@ -38,16 +38,17 @@ class TokenIssuer:
     """Builds SimpleJWT token pairs with ``user`` + ``role`` claims baked in."""
 
     @staticmethod
-    def for_user(user) -> RefreshToken:
+    def for_user(user, active_role: str | None = None) -> RefreshToken:
         refresh = RefreshToken.for_user(user)
         refresh["role"] = user.role
+        refresh["active_role"] = active_role or user.role
         refresh["email"] = user.email
         refresh["full_name"] = user.full_name
         return refresh
 
     @classmethod
-    def pair(cls, user) -> dict:
-        refresh = cls.for_user(user)
+    def pair(cls, user, active_role: str | None = None) -> dict:
+        refresh = cls.for_user(user, active_role=active_role)
         return {
             "refresh": str(refresh),
             "access": str(refresh.access_token),
@@ -65,24 +66,52 @@ class AuthService(BaseService):
         self.users = UserRepository()
 
     # -- login ------------------------------------------------------------
-    def authenticate(self, email: str, password: str):
-        user = authenticate(username=email, password=password)
+    def authenticate(self, credential: str, password: str):
+        """Authenticate by any accepted identifier (email or phone).
+
+        ``credential`` is the value from the contract's ``username``/``email``/
+        ``phone`` field. We resolve the user first, then verify the password via
+        the resolved account's email (the ``USERNAME_FIELD``)."""
+        resolved = self.users.get_by_login(credential)
+        login_email = resolved.email if resolved is not None else credential
+        user = authenticate(username=login_email, password=password)
         if user is None:
             # Distinguish inactive from wrong credentials where possible.
-            existing = self.users.get_by_email(email)
-            if existing is not None and not existing.is_active:
+            if resolved is not None and not resolved.is_active:
                 raise InactiveAccount("This account is disabled.")
-            raise InvalidCredentials("Invalid email or password.")
+            raise InvalidCredentials("Invalid credentials.")
         if not user.is_active:
             raise InactiveAccount("This account is disabled.")
         return user
 
-    def login(self, email: str, password: str) -> dict:
-        user = self.authenticate(email, password)
+    def login(self, credential: str, password: str) -> dict:
+        user = self.authenticate(credential, password)
         tokens = TokenIssuer.pair(user)
         self.actor = user  # so the audit row is attributed to the logging-in user
         self.audit(AuditLog.ACTION_LOGIN, entity_id=user.pk)
-        return {"user": user, **tokens}
+        return {"user": user, "active_role": user.role, **tokens}
+
+    # -- roles / role switching ------------------------------------------
+    def roles_for(self, user) -> list[str]:
+        """Roles this user may act as. The model carries a single canonical
+        role, so the allowed set is just that role (superusers may act as any).
+        """
+        from core.permissions import Role
+
+        if getattr(user, "is_superuser", False):
+            return list(Role.ALL)
+        return [user.role]
+
+    def switch_role(self, user, role: str) -> dict:
+        """Re-issue an access token whose ``active_role`` claim is ``role``.
+
+        Rejects roles outside the user's allowed set."""
+        if role not in self.roles_for(user):
+            raise InvalidCredentials("You cannot switch to that role.")
+        tokens = TokenIssuer.pair(user, active_role=role)
+        self.actor = user
+        self.audit(AuditLog.ACTION_UPDATE, entity_id=user.pk, changes={"active_role": role})
+        return {"access": tokens["access"], "active_role": role}
 
     # -- logout -----------------------------------------------------------
     def logout(self, refresh_token: str) -> None:

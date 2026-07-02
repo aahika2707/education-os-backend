@@ -26,7 +26,15 @@ router.register("results", ExamResultViewSet, basename="results")
 marks_save = MarksSheetViewSet.as_view({"post": "save_marks"})
 faculty_marks = MarksSheetViewSet.as_view({"get": "faculty_marks"})
 
+# Mobile spec: GET /marks/{user_id} (student marks breakdown) + faculty/admin
+# PUT/PATCH /marks/{mark_id} (update an ExamResult row). ``pk`` is the accounts
+# user_id for GET, the ExamResult id for PUT/PATCH.
+marks_by_user = ExamResultViewSet.as_view(
+    {"get": "marks_by_user", "put": "update", "patch": "partial_update"}
+)
+
 urlpatterns = [
     path("marks/", marks_save, name="marks-save"),
+    path("marks/<uuid:pk>", marks_by_user, name="marks-by-user"),
     path("faculty/marks/", faculty_marks, name="faculty-marks"),
 ] + router.urls

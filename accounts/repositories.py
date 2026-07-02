@@ -21,6 +21,22 @@ class UserRepository(BaseRepository):
             return None
         return self.get_queryset().filter(email__iexact=email.strip()).first()
 
+    def get_by_phone(self, phone: str) -> Optional["User"]:
+        if not phone:
+            return None
+        return self.get_queryset().filter(phone=phone.strip()).first()
+
+    def get_by_login(self, credential: str) -> Optional["User"]:
+        """Resolve a user by any accepted login identifier: email or phone.
+
+        The mobile contract accepts ``username``/``email``/``phone`` in one
+        credential field. This model has no separate username, so a credential
+        containing ``@`` (or matching an email) resolves by email; otherwise we
+        fall back to phone."""
+        if not credential:
+            return None
+        return self.get_by_email(credential) or self.get_by_phone(credential)
+
     def email_exists(self, email: str) -> bool:
         return self.get_queryset().filter(email__iexact=email.strip()).exists()
 

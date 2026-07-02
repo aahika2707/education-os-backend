@@ -130,3 +130,39 @@ class ClassSessionAppSerializer(serializers.ModelSerializer):
     class Meta:
         model = ClassSession
         fields = ["id", "subjectId", "day", "start", "end", "room", "type"]
+
+
+# --- Mobile API contract v1 (spec-exact, snake_case) -------------------------
+class AcademicRecordSerializer(serializers.Serializer):
+    """Spec-exact shape for ``GET /api/v1/academics/{user_id}``.
+
+    ``API_CONTRACT_V1`` §Academics:
+    ``{ degree, department, semester, section, mentor, cgpa }``.
+    """
+
+    degree = serializers.CharField(allow_blank=True)
+    department = serializers.CharField(allow_blank=True)
+    semester = serializers.IntegerField()
+    section = serializers.CharField(allow_blank=True)
+    mentor = serializers.CharField(allow_blank=True)
+    cgpa = serializers.FloatField()
+
+
+class GpaTrendPointSerializer(serializers.Serializer):
+    """One ``{ semester, gpa }`` point of the academic-progress GPA trend."""
+
+    semester = serializers.CharField()
+    gpa = serializers.FloatField()
+
+
+class AcademicProgressSerializer(serializers.Serializer):
+    """Spec-exact shape for ``GET /api/v1/progress/{user_id}``.
+
+    ``API_CONTRACT_V1`` §Academic Progress:
+    ``{ gpa_trend:[{semester,gpa}], semester_gpa, overall_cgpa, ai_insights:[...] }``.
+    """
+
+    gpa_trend = GpaTrendPointSerializer(many=True)
+    semester_gpa = serializers.FloatField()
+    overall_cgpa = serializers.FloatField()
+    ai_insights = serializers.ListField(child=serializers.DictField())

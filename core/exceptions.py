@@ -1,8 +1,8 @@
 """Envelope exception handler.
 
 Runs DRF's default handler, then reshapes any error response into the standard
-envelope ``{success:false, message, data:null, errors:[...], meta:{}}`` while
-preserving the original HTTP status code.
+envelope ``{status:"error", message, errors:[...]}`` while preserving the
+original HTTP status code.
 """
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.http import Http404
@@ -66,11 +66,9 @@ def envelope_exception_handler(exc, context):
         # Unhandled exception -> generic 500 envelope.
         return Response(
             {
-                "success": False,
+                "status": "error",
                 "message": "Internal server error.",
-                "data": None,
                 "errors": [{"field": None, "message": "Internal server error."}],
-                "meta": {},
             },
             status=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
@@ -80,11 +78,9 @@ def envelope_exception_handler(exc, context):
     message = _primary_message(errors, _default_message(response.status_code))
 
     response.data = {
-        "success": False,
+        "status": "error",
         "message": message,
-        "data": None,
         "errors": errors,
-        "meta": {},
     }
     return response
 

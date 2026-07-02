@@ -93,3 +93,29 @@ class ParentChildSerializer(StudentAppSerializer):
 
     def get_relation(self, obj) -> str:
         return self._relation
+
+
+# --- Spec (mobile API contract) parent-profile serializer --------------------
+class ParentProfileSpecSerializer(serializers.Serializer):
+    """``GET /api/v1/parents/{user_id}`` — snake_case parent profile.
+
+    ``{ parent_name, mobile, email, children: [{ student_id, name, roll_no }] }``.
+    Instantiated with the parent :class:`~accounts.User`; the ``links``
+    (``ParentLink`` queryset for that parent) are supplied via context.
+    """
+
+    parent_name = serializers.CharField(source="full_name", read_only=True)
+    mobile = serializers.CharField(source="phone", read_only=True)
+    email = serializers.EmailField(read_only=True)
+    children = serializers.SerializerMethodField()
+
+    def get_children(self, obj) -> list:
+        links = self.context.get("links", [])
+        return [
+            {
+                "student_id": str(link.student_id),
+                "name": link.student.full_name,
+                "roll_no": link.student.roll_no,
+            }
+            for link in links
+        ]

@@ -11,6 +11,8 @@ from accounts.views import (
     RefreshView,
     RegisterView,
     ResetPasswordView,
+    RolesView,
+    SwitchRoleView,
 )
 
 app_name = "accounts"
@@ -20,6 +22,8 @@ urlpatterns = [
     path("refresh", RefreshView.as_view(), name="refresh"),
     path("logout", LogoutView.as_view(), name="logout"),
     path("me", MeView.as_view(), name="me"),
+    path("roles/<uuid:user_id>", RolesView.as_view(), name="roles"),
+    path("switch-role", SwitchRoleView.as_view(), name="switch-role"),
     path("change-password", ChangePasswordView.as_view(), name="change-password"),
     path("forgot-password", ForgotPasswordView.as_view(), name="forgot-password"),
     path("reset-password", ResetPasswordView.as_view(), name="reset-password"),

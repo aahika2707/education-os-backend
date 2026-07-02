@@ -48,6 +48,52 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
         return ordered
 
 
+class LeaveSpecSerializer(serializers.ModelSerializer):
+    """Spec (mobile API contract) read shape — snake_case.
+
+    ``{ id, type, from_date, to_date, reason, status, applied_on }``.
+    """
+
+    id = serializers.CharField(read_only=True)
+    from_date = serializers.DateField(source="start_date", read_only=True)
+    to_date = serializers.DateField(source="end_date", read_only=True)
+    applied_on = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = LeaveRequest
+        fields = [
+            "id",
+            "type",
+            "from_date",
+            "to_date",
+            "reason",
+            "status",
+            "applied_on",
+        ]
+
+
+class LeaveSpecInputSerializer(serializers.Serializer):
+    """Validates ``POST /api/v1/leaves`` (spec): ``{ type, from_date, to_date, reason }``."""
+
+    type = serializers.ChoiceField(choices=LeaveRequest.TYPE_CHOICES)
+    from_date = serializers.DateField()
+    to_date = serializers.DateField()
+    reason = serializers.CharField(allow_blank=True, required=False, default="")
+
+    def validate(self, attrs):
+        if attrs["to_date"] < attrs["from_date"]:
+            raise serializers.ValidationError("`to_date` cannot be before `from_date`.")
+        return attrs
+
+
+class LeaveStatusSerializer(serializers.Serializer):
+    """Validates ``PUT /api/v1/leaves/{leave_id}`` (spec): ``{ status }``."""
+
+    status = serializers.ChoiceField(
+        choices=[LeaveRequest.STATUS_APPROVED, LeaveRequest.STATUS_REJECTED]
+    )
+
+
 class LeaveInputSerializer(serializers.Serializer):
     """Validates ``POST /leaves`` (``LeaveInput``: type/from/to/reason)."""
 

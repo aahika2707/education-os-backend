@@ -15,12 +15,14 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from core.cache import TTL_SUBJECTS, TTL_TIMETABLE, cache_get_or_set, cache_key
-from core.permissions import RoleModelPermission
+from core.permissions import Role, RoleModelPermission
 from core.viewsets import BaseModelViewSet
 
 from academics.models import (
@@ -37,6 +39,8 @@ from academics.permissions import (
     TIMETABLE_MATRIX,
 )
 from academics.serializers import (
+    AcademicProgressSerializer,
+    AcademicRecordSerializer,
     ClassSessionAppSerializer,
     ClassSessionSerializer,
     DepartmentSerializer,
@@ -47,6 +51,8 @@ from academics.serializers import (
     SubjectSerializer,
 )
 from academics.services import (
+    AcademicProgressService,
+    AcademicRecordService,
     ClassSessionService,
     DepartmentService,
     ProgramService,
@@ -54,6 +60,79 @@ from academics.services import (
     SemesterService,
     SubjectService,
 )
+
+_STAFF_ROLES = set(Role.STAFF)
+
+
+def _resolve_student_for_user_id(request, user_id):
+    """Resolve the :class:`students.Student` for an accounts ``user_id``.
+
+    Enforces the contract access rule: a student/parent may only use their OWN
+    ``user_id``; staff/admin may use any. Raises ``PermissionDenied`` (403) on a
+    cross-user request and ``NotFound`` (404) when no live student profile is
+    linked to the given user id.
+    """
+    user = request.user
+    if user.role not in _STAFF_ROLES and str(user.id) != str(user_id):
+        raise PermissionDenied("You can only access your own data.")
+
+    from students.models import Student
+
+    student = (
+        Student.objects.select_related(
+            "user", "program", "department", "semester", "section"
+        )
+        .filter(user_id=user_id, is_deleted=False)
+        .first()
+    )
+    if student is None:
+        raise NotFound("No student profile is linked to this user.")
+    return student
+
+
+def _client_ip(request):
+    xff = request.META.get("HTTP_X_FORWARDED_FOR")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR")
+
+
+class AcademicRecordView(APIView):
+    """``GET /api/v1/academics/{user_id}`` — the student's academic record.
+
+    Spec-exact snake_case ``{ degree, department, semester, section, mentor,
+    cgpa }``; ``{user_id}`` is the accounts user id, self-scoped for
+    students/parents.
+    """
+
+    permission_classes = [IsAuthenticated, RoleModelPermission]
+    permission_matrix = {"get": list(Role.ALL)}
+
+    @extend_schema(responses={200: AcademicRecordSerializer})
+    def get(self, request, user_id):
+        student = _resolve_student_for_user_id(request, user_id)
+        service = AcademicRecordService(actor=request.user, ip=_client_ip(request))
+        data = AcademicRecordSerializer(service.academic_record(student)).data
+        return Response(data)
+
+
+class AcademicProgressView(APIView):
+    """``GET /api/v1/progress/{user_id}`` — the student's academic progress.
+
+    Spec-exact snake_case ``{ gpa_trend:[{semester,gpa}], semester_gpa,
+    overall_cgpa, ai_insights:[...] }``; ``{user_id}`` is the accounts user id,
+    self-scoped for students/parents.
+    """
+
+    permission_classes = [IsAuthenticated, RoleModelPermission]
+    permission_matrix = {"get": list(Role.ALL)}
+
+    @extend_schema(responses={200: AcademicProgressSerializer})
+    def get(self, request, user_id):
+        student = _resolve_student_for_user_id(request, user_id)
+        service = AcademicProgressService(actor=request.user, ip=_client_ip(request))
+        data = AcademicProgressSerializer(service.progress(student)).data
+        return Response(data)
 
 # Map Python weekday() (Mon=0) to the app's weekday codes. Sunday (6) has no
 # code in the contract (Mon..Sat only) -> resolves to None.

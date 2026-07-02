@@ -3,9 +3,15 @@ exception handler shape all responses. Router-mounted under ``/api/v1/auth/``.
 """
 import secrets
 
+from django.contrib.auth import get_user_model
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
-from rest_framework.exceptions import AuthenticationFailed, ValidationError
+from rest_framework.exceptions import (
+    AuthenticationFailed,
+    NotFound,
+    PermissionDenied,
+    ValidationError,
+)
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -22,6 +28,9 @@ from accounts.serializers import (
     RefreshSerializer,
     RegisterSerializer,
     ResetPasswordSerializer,
+    RolesResponseSerializer,
+    SwitchRoleResponseSerializer,
+    SwitchRoleSerializer,
     TokenResponseSerializer,
     UserSerializer,
 )
@@ -33,6 +42,9 @@ from accounts.services import (
     TokenIssuer,
     UserService,
 )
+from core.permissions import Role
+
+User = get_user_model()
 
 
 def _client_ip(request):
@@ -42,15 +54,36 @@ def _client_ip(request):
     return request.META.get("REMOTE_ADDR")
 
 
-def _token_payload(user, access: str, refresh: str) -> dict:
-    """Login/refresh response body: user + access + refresh, plus ``token``
-    duplicating ``access`` for the mobile client."""
-    return {
+def _resolve_user_or_403(request, user_id):
+    """Resolve an accounts user by id, enforcing self-or-staff access.
+
+    Student/parent may only target their own ``user_id``; any staff-side role
+    may target anyone. Returns the target :class:`User` or raises 404/403."""
+    target = User.objects.filter(pk=user_id).first()
+    if target is None:
+        raise NotFound("User not found.")
+    actor = request.user
+    if getattr(actor, "role", None) in set(Role.STAFF):
+        return target
+    if str(actor.pk) != str(user_id):
+        raise PermissionDenied("You can only access your own resource.")
+    return target
+
+
+def _token_payload(user, access: str, refresh: str, active_role: str | None = None) -> dict:
+    """Login/refresh response body. Emits the spec-exact ``access_token`` /
+    ``refresh_token`` (+ ``active_role``) plus legacy ``access`` / ``token`` /
+    ``refresh`` aliases for back-compat."""
+    payload = {
         "user": UserSerializer(user).data,
+        "access_token": access,
+        "refresh_token": refresh,
         "access": access,
-        "token": access,  # mobile app expects `token`
+        "token": access,  # legacy alias the mobile app also accepts
         "refresh": refresh,
     }
+    payload["active_role"] = active_role if active_role is not None else user.role
+    return payload
 
 
 class LoginView(APIView):
@@ -60,7 +93,7 @@ class LoginView(APIView):
     @extend_schema(
         request=LoginSerializer,
         responses=TokenResponseSerializer,
-        summary="Log in with email + password",
+        summary="Log in with username / email / phone + password",
     )
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
@@ -68,12 +101,17 @@ class LoginView(APIView):
         service = AuthService(ip=_client_ip(request))
         try:
             result = service.login(
-                serializer.validated_data["email"],
+                serializer.validated_data["credential"],
                 serializer.validated_data["password"],
             )
         except (InvalidCredentials, InactiveAccount) as exc:
             raise AuthenticationFailed(str(exc))
-        payload = _token_payload(result["user"], result["access"], result["refresh"])
+        payload = _token_payload(
+            result["user"],
+            result["access"],
+            result["refresh"],
+            active_role=result["active_role"],
+        )
         return Response(payload, status=status.HTTP_200_OK)
 
 
@@ -93,7 +131,13 @@ class RefreshView(APIView):
         except TokenError as exc:
             raise AuthenticationFailed("Invalid or expired refresh token.") from exc
         return Response(
-            {"access": access, "token": access, "refresh": new_refresh},
+            {
+                "access_token": access,
+                "refresh_token": new_refresh,
+                "access": access,
+                "token": access,
+                "refresh": new_refresh,
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -121,6 +165,49 @@ class MeView(APIView):
     @extend_schema(responses=MeSerializer, summary="Get the current user")
     def get(self, request):
         return Response(MeSerializer(request.user).data, status=status.HTTP_200_OK)
+
+
+class RolesView(APIView):
+    """``GET /api/v1/auth/roles/{user_id}`` -> ``data: { roles: [...] }``.
+
+    ``{user_id}`` is the accounts user id; self-or-staff access is enforced."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = RolesResponseSerializer
+
+    @extend_schema(responses=RolesResponseSerializer, summary="List the roles a user may act as")
+    def get(self, request, user_id):
+        target = _resolve_user_or_403(request, user_id)
+        service = AuthService(actor=request.user, ip=_client_ip(request))
+        return Response({"roles": service.roles_for(target)}, status=status.HTTP_200_OK)
+
+
+class SwitchRoleView(APIView):
+    """``POST /api/v1/auth/switch-role`` — re-issue an access token whose
+    ``active_role`` claim is the requested role.
+
+    Returns ``data: { access_token, active_role }``."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = SwitchRoleSerializer
+
+    @extend_schema(
+        request=SwitchRoleSerializer,
+        responses=SwitchRoleResponseSerializer,
+        summary="Switch the active role for the current user",
+    )
+    def post(self, request):
+        serializer = SwitchRoleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        service = AuthService(actor=request.user, ip=_client_ip(request))
+        try:
+            result = service.switch_role(request.user, serializer.validated_data["role"])
+        except InvalidCredentials as exc:
+            raise PermissionDenied(str(exc))
+        return Response(
+            {"access_token": result["access"], "active_role": result["active_role"]},
+            status=status.HTTP_200_OK,
+        )
 
 
 class ChangePasswordView(APIView):

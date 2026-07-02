@@ -28,14 +28,30 @@ class AuthFlowTests(APITestCase):
         )
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
-        self.assertTrue(body["success"])
+        self.assertEqual(body["status"], "success")
         data = body["data"]
-        self.assertIn("access", data)
-        self.assertIn("refresh", data)
+        # Spec-exact fields.
+        self.assertIn("access_token", data)
+        self.assertIn("refresh_token", data)
+        self.assertEqual(data["active_role"], Role.STUDENT)
+        # Legacy aliases retained for back-compat.
+        self.assertEqual(data["access"], data["access_token"])
+        self.assertEqual(data["refresh"], data["refresh_token"])
         self.assertEqual(data["token"], data["access"])  # mobile alias
         self.assertEqual(data["user"]["email"], self.user.email)
         self.assertEqual(data["user"]["name"], "Abin Thomas")
         self.assertEqual(data["user"]["avatarColor"][0], "#")
+
+    def test_login_with_phone_credential(self):
+        self.user.phone = "9998887777"
+        self.user.save(update_fields=["phone"])
+        resp = self.client.post(
+            reverse("accounts:login"),
+            {"phone": self.user.phone, "password": self.password},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["data"]["user"]["email"], self.user.email)
 
     def test_login_bad_password_is_401_enveloped(self):
         resp = self.client.post(
@@ -45,13 +61,13 @@ class AuthFlowTests(APITestCase):
         )
         self.assertEqual(resp.status_code, 401)
         body = resp.json()
-        self.assertFalse(body["success"])
+        self.assertEqual(body["status"], "error")
         self.assertTrue(body["errors"])
 
     def test_login_validation_error_is_400(self):
         resp = self.client.post(reverse("accounts:login"), {"email": "x"}, format="json")
         self.assertEqual(resp.status_code, 400)
-        self.assertFalse(resp.json()["success"])
+        self.assertEqual(resp.json()["status"], "error")
 
     # -- me ---------------------------------------------------------------
     def test_me_requires_auth(self):
@@ -62,6 +78,46 @@ class AuthFlowTests(APITestCase):
         resp = self.client.get(reverse("accounts:me"))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["data"]["email"], self.user.email)
+
+    # -- roles / switch-role ---------------------------------------------
+    def test_roles_returns_user_roles(self):
+        self.client.force_authenticate(self.user)
+        resp = self.client.get(reverse("accounts:roles", args=[self.user.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["data"]["roles"], [Role.STUDENT])
+
+    def test_roles_student_cannot_read_other_user(self):
+        other = User.objects.create_user(
+            email="other@example.com", password=self.password, full_name="Other", role=Role.STUDENT
+        )
+        self.client.force_authenticate(self.user)
+        resp = self.client.get(reverse("accounts:roles", args=[other.pk]))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_roles_staff_can_read_any_user(self):
+        staff = User.objects.create_user(
+            email="hod@example.com", password=self.password, full_name="HOD", role=Role.HOD
+        )
+        self.client.force_authenticate(staff)
+        resp = self.client.get(reverse("accounts:roles", args=[self.user.pk]))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_switch_role_to_own_role_reissues_token(self):
+        self.client.force_authenticate(self.user)
+        resp = self.client.post(
+            reverse("accounts:switch-role"), {"role": Role.STUDENT}, format="json"
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()["data"]
+        self.assertIn("access_token", data)
+        self.assertEqual(data["active_role"], Role.STUDENT)
+
+    def test_switch_role_to_foreign_role_is_403(self):
+        self.client.force_authenticate(self.user)
+        resp = self.client.post(
+            reverse("accounts:switch-role"), {"role": Role.ADMIN}, format="json"
+        )
+        self.assertEqual(resp.status_code, 403)
 
     # -- register (admin only) -------------------------------------------
     def test_register_forbidden_for_student(self):

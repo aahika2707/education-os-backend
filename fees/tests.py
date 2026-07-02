@@ -19,11 +19,13 @@ from academics.models import Department, Program, Section, Semester
 from students.models import Guardian, Student
 
 from fees.models import FeeInvoice, Payment
-from fees.urls import router
 
 User = get_user_model()
 
-urlpatterns = [path("", include((router.urls, "fees"), namespace="fees"))]
+# Mount the full fees URL surface (router + the mobile-contract spec routes) so
+# both the management endpoints and the {user_id}-parameterized spec endpoints
+# resolve under the ``fees`` namespace.
+urlpatterns = [path("", include("fees.urls"))]
 
 
 @override_settings(ROOT_URLCONF=__name__)
@@ -88,8 +90,8 @@ class FeesAPITests(APITestCase):
         self.client.force_authenticate(self.student_user)
         resp = self.client.get(reverse("fees:fee-list"))
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["meta"]["pagination"]["count"], 2)
-        titles = {row["title"] for row in resp.json()["data"]}
+        self.assertEqual(resp.json()["data"]["pagination"]["count"], 2)
+        titles = {row["title"] for row in resp.json()["data"]["results"]}
         self.assertNotIn("Tuition", titles - {"Tuition Term 1"})
 
     def test_list_requires_auth(self):
@@ -97,7 +99,7 @@ class FeesAPITests(APITestCase):
 
     def test_app_shape_camelcase(self):
         self.client.force_authenticate(self.student_user)
-        row = self.client.get(reverse("fees:fee-list")).json()["data"][0]
+        row = self.client.get(reverse("fees:fee-list")).json()["data"]["results"][0]
         for key in ("id", "title", "term", "amount", "dueDate", "status"):
             self.assertIn(key, row)
 
@@ -165,4 +167,71 @@ class FeesAPITests(APITestCase):
             reverse("fees:fee-list"), {"title": "No amount"}, format="json",
         )
         self.assertEqual(resp.status_code, 400)
-        self.assertFalse(resp.json()["success"])
+        self.assertEqual(resp.json()["status"], "error")
+
+    # -- mobile API contract v1 endpoints --------------------------------
+    def test_fees_by_user_spec_shape(self):
+        """GET /fees/{user_id} → spec summary with snake_case invoice rows."""
+        self.client.force_authenticate(self.student_user)
+        resp = self.client.get(
+            reverse("fees:fee-detail-spec", args=[self.student_user.id])
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()["data"]
+        self.assertEqual(Decimal(str(data["total_due"])), Decimal("70000.00"))
+        self.assertEqual(Decimal(str(data["paid_amount"])), Decimal("0"))
+        self.assertEqual(Decimal(str(data["pending_amount"])), Decimal("70000.00"))
+        self.assertEqual(len(data["invoices"]), 2)
+        for key in ("id", "title", "term", "amount", "due_date", "status", "paid_on"):
+            self.assertIn(key, data["invoices"][0])
+
+    def test_fees_by_user_denies_other_user(self):
+        """A student may not read another user's fees."""
+        self.client.force_authenticate(self.student_user)
+        resp = self.client.get(
+            reverse("fees:fee-detail-spec", args=[self.other_student_user.id])
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_fees_by_user_staff_any(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(
+            reverse("fees:fee-detail-spec", args=[self.other_student_user.id])
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    def test_payment_and_receipt_flow(self):
+        """POST /fees/payment → {payment_id, receipt_no}; receipt is fetchable."""
+        self.client.force_authenticate(self.parent_user)
+        resp = self.client.post(
+            reverse("fees:fee-payment"),
+            {"fee_id": str(self.inv1.id)},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        body = resp.json()["data"]
+        self.assertIn("payment_id", body)
+        self.assertTrue(body["receipt_no"].startswith("RCPT-"))
+        self.inv1.refresh_from_db()
+        self.assertEqual(self.inv1.status, FeeInvoice.STATUS_PAID)
+
+        # The receipt is retrievable and carries spec fields.
+        receipt = self.client.get(
+            reverse("fees:fee-receipt", args=[body["payment_id"]])
+        )
+        self.assertEqual(receipt.status_code, 200)
+        rdata = receipt.json()["data"]
+        self.assertEqual(rdata["receipt_no"], body["receipt_no"])
+        self.assertEqual(rdata["fee_id"], str(self.inv1.id))
+        self.assertEqual(rdata["roll_no"], "CSE-001")
+
+    def test_payment_denies_unrelated_invoice(self):
+        self.client.force_authenticate(self.parent_user)
+        resp = self.client.post(
+            reverse("fees:fee-payment"),
+            {"fee_id": str(self.other_inv.id)},
+            format="json",
+        )
+        self.assertIn(resp.status_code, (403, 404))
+        self.other_inv.refresh_from_db()
+        self.assertEqual(self.other_inv.status, FeeInvoice.STATUS_DUE)

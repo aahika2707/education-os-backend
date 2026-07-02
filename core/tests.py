@@ -26,21 +26,20 @@ class CacheHelperTests(TestCase):
 class EnvelopeRendererTests(TestCase):
     def _render(self, data, status_code=200):
         renderer = EnvelopeJSONRenderer()
-
-        class _Resp:
-            pass
-
-        resp = _Resp()
-        resp.status_code = status_code
-        return renderer._build_envelope(data, status_code, {"response": resp})
+        return renderer._build_envelope(data, status_code)
 
     def test_wraps_success(self):
         env = self._render({"x": 1})
-        self.assertTrue(env["success"])
+        self.assertEqual(env["status"], "success")
         self.assertEqual(env["data"], {"x": 1})
-        self.assertEqual(env["errors"], [])
+        self.assertNotIn("errors", env)
+        self.assertNotIn("meta", env)
 
-    def test_lifts_pagination_into_meta(self):
+    def test_keeps_pagination_shape(self):
         env = self._render({"results": [1, 2], "pagination": {"count": 2}})
-        self.assertEqual(env["data"], [1, 2])
-        self.assertEqual(env["meta"]["pagination"], {"count": 2})
+        self.assertEqual(env["status"], "success")
+        self.assertEqual(env["data"], {"results": [1, 2], "pagination": {"count": 2}})
+
+    def test_error_body_passes_through(self):
+        body = {"status": "error", "message": "nope", "errors": []}
+        self.assertEqual(self._render(body, status_code=400), body)

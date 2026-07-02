@@ -17,6 +17,7 @@ Reads are cached under the ``attendance`` prefix (TTL 300s); writes flow through
 the service layer (audit + cache-invalidation).
 """
 from django.db.models import Count, Q
+from django.db.models.functions import TruncMonth
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework.decorators import action
@@ -72,6 +73,21 @@ class AttendanceViewSet(BaseModelViewSet):
         if profile is None:
             raise NotFound("No faculty profile for the current user.")
         return profile
+
+    def _resolve_student_by_user_id(self, user_id):
+        """Resolve the :class:`students.Student` for an *accounts* user id.
+
+        Access rule (mobile contract): a student/parent may only read their OWN
+        ``user_id``; staff/admin may read any (within college). The domain record
+        is looked up by ``user_id`` (not the student PK).
+        """
+        user = self.request.user
+        if user.role not in _STAFF_ROLES and str(user.id) != str(user_id):
+            raise PermissionDenied("You can only access your own attendance.")
+        student = Student.objects.filter(user_id=user_id, is_deleted=False).first()
+        if student is None:
+            raise NotFound("No student profile for this user.")
+        return student
 
     def _class_for_current_user(self, class_id):
         """Fetch a FacultyClass, enforcing owner-scoping for faculty users."""
@@ -174,6 +190,95 @@ class AttendanceViewSet(BaseModelViewSet):
             cache_key("attendance", "records", student.pk, subject_id),
             TTL_ATTENDANCE,
             build,
+        )
+        return Response(data)
+
+    # -- mobile spec read: GET /attendance/{user_id} ---------------------
+    @extend_schema(
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "overall_percentage": {"type": "integer"},
+                    "subject_wise": {"type": "array", "items": {"type": "object"}},
+                    "monthly": {"type": "array", "items": {"type": "object"}},
+                },
+            }
+        }
+    )
+    def attendance_by_user(self, request, pk=None):
+        """``GET /attendance/{user_id}`` — spec-shaped attendance for a student.
+
+        Resolves ``students.Student`` from the accounts ``user_id`` (``pk``) and
+        returns ``{ overall_percentage, subject_wise:[{subject, attended, total,
+        percentage}], monthly:[{month, percentage}] }`` (snake_case per contract).
+        The core renderer wraps this in the success envelope.
+        """
+        student = self._resolve_student_by_user_id(pk)
+
+        def build():
+            base = AttendanceRecord.objects.filter(student=student)
+            agg = base.aggregate(
+                total=Count("id"),
+                attended=Count(
+                    "id", filter=Q(status__in=AttendanceStatus.ATTENDED)
+                ),
+            )
+            total = agg["total"] or 0
+            attended = agg["attended"] or 0
+            overall = round(attended / total * 100) if total else 0
+
+            subject_rows = (
+                base.values("subject_id", "subject__name")
+                .annotate(
+                    total=Count("id"),
+                    attended=Count(
+                        "id", filter=Q(status__in=AttendanceStatus.ATTENDED)
+                    ),
+                )
+                .order_by("subject__name")
+            )
+            subject_wise = [
+                {
+                    "subject": r["subject__name"] or "",
+                    "attended": r["attended"] or 0,
+                    "total": r["total"] or 0,
+                    "percentage": round(r["attended"] / r["total"] * 100)
+                    if r["total"]
+                    else 0,
+                }
+                for r in subject_rows
+            ]
+
+            month_rows = (
+                base.annotate(m=TruncMonth("date"))
+                .values("m")
+                .annotate(
+                    total=Count("id"),
+                    attended=Count(
+                        "id", filter=Q(status__in=AttendanceStatus.ATTENDED)
+                    ),
+                )
+                .order_by("m")
+            )
+            monthly = [
+                {
+                    "month": r["m"].strftime("%Y-%m") if r["m"] else "",
+                    "percentage": round(r["attended"] / r["total"] * 100)
+                    if r["total"]
+                    else 0,
+                }
+                for r in month_rows
+            ]
+
+            return {
+                "overall_percentage": overall,
+                "subject_wise": subject_wise,
+                "monthly": monthly,
+            }
+
+        data = cache_get_or_set(
+            cache_key("attendance", "byuser", student.pk), TTL_ATTENDANCE, build
         )
         return Response(data)
 

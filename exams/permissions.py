@@ -41,6 +41,8 @@ EXAM_RESULT_MATRIX = {
     "destroy": ADMINS,
     # custom actions
     "gpa": ALL_ROLES,
+    # mobile spec read: GET /marks/{user_id} (self/child scoped in view)
+    "marks_by_user": ALL_ROLES,
 }
 
 # Faculty marks entry: faculty own their sheets; admins may manage; hod/principal

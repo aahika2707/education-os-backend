@@ -142,6 +142,52 @@ class ExamResultViewSet(BaseModelViewSet):
             raise NotFound("No student profile is linked to this account.")
         return student
 
+    def _resolve_student_by_user_id(self, user_id):
+        """Resolve :class:`students.Student` from an *accounts* user id.
+
+        Mobile-contract access rule: a student/parent may only read their OWN
+        ``user_id``; staff/admin may read any (within college).
+        """
+        user = self.request.user
+        if user.role not in _STAFF_ROLES and str(user.id) != str(user_id):
+            raise PermissionDenied("You can only access your own marks.")
+        student = Student.objects.filter(user_id=user_id, is_deleted=False).first()
+        if student is None:
+            raise NotFound("No student profile for this user.")
+        return student
+
+    @extend_schema(
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "subjects": {"type": "array", "items": {"type": "object"}},
+                    "gpa": {"type": "number"},
+                },
+            }
+        }
+    )
+    def marks_by_user(self, request, pk=None):
+        """``GET /marks/{user_id}`` — spec-shaped marks for a student.
+
+        Resolves ``students.Student`` from the accounts ``user_id`` (``pk``) and
+        returns ``{ subjects:[{subject, internal, external, total, grade}], gpa }``
+        (snake_case per contract). The core renderer wraps it in the envelope.
+        """
+        student = self._resolve_student_by_user_id(pk)
+        service = ExamResultService(actor=request.user)
+
+        def build():
+            return {
+                "subjects": service.subject_marks_for_student(student.id),
+                "gpa": service.gpa_for_student(student.id),
+            }
+
+        data = cache_get_or_set(
+            cache_key("exams", "marks", student.pk), TTL_EXAMS, build
+        )
+        return Response(data)
+
     def get_queryset(self):
         qs = super().get_queryset()
         if self.request.user.role not in _STAFF_ROLES:

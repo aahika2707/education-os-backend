@@ -204,3 +204,42 @@ class StudentAppSerializer(serializers.ModelSerializer):
         # Derive academic year from the semester number (2 semesters per year).
         num = obj.semester.number if obj.semester_id else 0
         return (num + 1) // 2 if num else 0
+
+
+# --- Spec (mobile API contract) profile serializer ---------------------------
+class StudentProfileSpecSerializer(serializers.ModelSerializer):
+    """``GET /api/v1/students/{user_id}`` — snake_case profile.
+
+    ``{ name, email, phone, blood_group, mentor, admission_no, roll_no,
+    department, semester, section }`` (academic FKs flattened to display values).
+    """
+
+    name = serializers.CharField(source="full_name", read_only=True)
+    mentor = serializers.CharField(source="mentor_name", read_only=True)
+    department = serializers.SerializerMethodField()
+    semester = serializers.SerializerMethodField()
+    section = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Student
+        fields = [
+            "name",
+            "email",
+            "phone",
+            "blood_group",
+            "mentor",
+            "admission_no",
+            "roll_no",
+            "department",
+            "semester",
+            "section",
+        ]
+
+    def get_department(self, obj) -> str:
+        return obj.department.name if obj.department_id else ""
+
+    def get_semester(self, obj) -> int:
+        return obj.semester.number if obj.semester_id else 0
+
+    def get_section(self, obj) -> str:
+        return obj.section.name if obj.section_id else ""

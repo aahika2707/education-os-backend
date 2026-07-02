@@ -35,8 +35,25 @@ class MeSerializer(UserSerializer):
 
 
 class LoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    """Login accepting any one of ``username`` / ``email`` / ``phone`` plus
+    ``password`` (per the mobile contract). The resolved value is exposed as
+    ``credential`` in ``validated_data``."""
+
+    username = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.CharField(required=False, allow_blank=True)
+    phone = serializers.CharField(required=False, allow_blank=True)
     password = serializers.CharField(write_only=True, style={"input_type": "password"})
+
+    def validate(self, attrs):
+        credential = (
+            attrs.get("email") or attrs.get("username") or attrs.get("phone") or ""
+        ).strip()
+        if not credential:
+            raise serializers.ValidationError(
+                "Provide one of username, email, or phone."
+            )
+        attrs["credential"] = credential
+        return attrs
 
 
 class RefreshSerializer(serializers.Serializer):
@@ -100,10 +117,33 @@ class RegisterSerializer(serializers.Serializer):
         return value
 
 
+class SwitchRoleSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(choices=Role.CHOICES)
+
+
+class RolesResponseSerializer(serializers.Serializer):
+    """Documents ``GET /auth/roles/{user_id}`` -> ``data: { roles: [...] }``."""
+
+    roles = serializers.ListField(child=serializers.CharField(), read_only=True)
+
+
+class SwitchRoleResponseSerializer(serializers.Serializer):
+    """Documents ``POST /auth/switch-role`` -> ``data: { access_token, active_role }``."""
+
+    access_token = serializers.CharField(read_only=True)
+    active_role = serializers.CharField(read_only=True)
+
+
 class TokenResponseSerializer(serializers.Serializer):
-    """Documents the login/refresh response body (inside the envelope ``data``)."""
+    """Documents the login/refresh response body (inside the envelope ``data``).
+
+    Emits the spec-exact ``access_token`` / ``refresh_token`` plus the legacy
+    ``access`` / ``token`` / ``refresh`` aliases for back-compat."""
 
     user = UserSerializer(read_only=True)
+    active_role = serializers.CharField(read_only=True)
+    access_token = serializers.CharField(read_only=True)
+    refresh_token = serializers.CharField(read_only=True)
     access = serializers.CharField(read_only=True)
     token = serializers.CharField(read_only=True, help_text="Alias of access for the mobile client.")
     refresh = serializers.CharField(read_only=True)

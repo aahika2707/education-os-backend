@@ -15,7 +15,9 @@ from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.filters import OrderingFilter, SearchFilter
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from core.permissions import Role
 from core.viewsets import BaseModelViewSet
@@ -34,6 +36,7 @@ from students.serializers import (
     StudentAddressSerializer,
     StudentAppSerializer,
     StudentDocumentSerializer,
+    StudentProfileSpecSerializer,
     StudentSerializer,
 )
 from students.services import (
@@ -141,3 +144,31 @@ class StudentDocumentViewSet(BaseModelViewSet):
     filterset_fields = ["student", "kind"]
     search_fields = ["title"]
     ordering_fields = ["created_at", "title"]
+
+
+# ---------------------------------------------------------------------------
+# Mobile API contract (spec) endpoint — snake_case + {user_id} resolution.
+# ---------------------------------------------------------------------------
+class StudentProfileByUserView(APIView):
+    """``GET /api/v1/students/{user_id}`` — a student's profile (snake_case).
+
+    ``{user_id}`` is the accounts user id; resolved to the linked
+    :class:`Student`. Non-staff callers may only fetch their own profile.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: StudentProfileSpecSerializer})
+    def get(self, request, user_id):
+        if request.user.role not in _STAFF_ROLES and str(request.user.id) != str(
+            user_id
+        ):
+            raise PermissionDenied("You can only access your own profile.")
+        student = (
+            Student.objects.select_related("department", "semester", "section")
+            .filter(user_id=user_id)
+            .first()
+        )
+        if student is None:
+            raise NotFound("Student profile not found.")
+        return Response(StudentProfileSpecSerializer(student).data)

@@ -54,6 +54,22 @@ urlpatterns = [
         AttendanceViewSet.as_view({"post": "create_session"}),
         name="attendance-save-session",
     ),
+    # Mobile spec: GET /attendance/{user_id} (student attendance summary) +
+    # faculty/admin PUT/PATCH /attendance/{attendance_id} (update a record).
+    # The uuid converter keeps the literal reads above (summary/overall/records)
+    # unambiguous. ``pk`` is the accounts user_id for GET, the AttendanceRecord
+    # id for PUT/PATCH.
+    path(
+        "attendance/<uuid:pk>",
+        AttendanceViewSet.as_view(
+            {
+                "get": "attendance_by_user",
+                "put": "update",
+                "patch": "partial_update",
+            }
+        ),
+        name="attendance-by-user",
+    ),
     path(
         "faculty/attendance",
         AttendanceViewSet.as_view({"get": "faculty_sessions"}),

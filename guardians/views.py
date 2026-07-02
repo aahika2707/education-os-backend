@@ -11,19 +11,32 @@ The self-scoped children read is cached under the ``guardians`` prefix (TTL
 600s); writes flow through the service layer (audit + cache-invalidation) via
 :class:`core.viewsets.BaseModelViewSet`.
 """
+from django.contrib.auth import get_user_model
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.filters import OrderingFilter, SearchFilter
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from core.cache import TTL_LIBRARY, cache_get_or_set, cache_key
+from core.permissions import Role
 from core.viewsets import BaseModelViewSet
 
 from guardians.models import ParentLink
 from guardians.permissions import PARENT_LINK_MATRIX
-from guardians.serializers import ParentChildSerializer, ParentLinkSerializer
+from guardians.repositories import ParentLinkRepository
+from guardians.serializers import (
+    ParentChildSerializer,
+    ParentLinkSerializer,
+    ParentProfileSpecSerializer,
+)
 from guardians.services import ParentLinkService
+
+User = get_user_model()
+_STAFF_ROLES = set(Role.STAFF)
 
 # The children read is small and reference-like; use the library TTL (600s).
 TTL_GUARDIANS = TTL_LIBRARY
@@ -85,3 +98,30 @@ class ParentLinkViewSet(BaseModelViewSet):
             build,
         )
         return Response(data)
+
+
+# ---------------------------------------------------------------------------
+# Mobile API contract (spec) endpoint — snake_case + {user_id} resolution.
+# ---------------------------------------------------------------------------
+class ParentProfileByUserView(APIView):
+    """``GET /api/v1/parents/{user_id}`` — a parent's profile + children.
+
+    ``{user_id}`` is the parent's accounts user id (self or staff). Returns
+    ``{ parent_name, mobile, email, children: [{ student_id, name, roll_no }] }``.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: ParentProfileSpecSerializer})
+    def get(self, request, user_id):
+        if request.user.role not in _STAFF_ROLES and str(request.user.id) != str(
+            user_id
+        ):
+            raise PermissionDenied("You can only access your own profile.")
+        parent = User.objects.filter(pk=user_id).first()
+        if parent is None:
+            raise NotFound("Parent not found.")
+        links = ParentLinkRepository().for_parent(parent)
+        return Response(
+            ParentProfileSpecSerializer(parent, context={"links": links}).data
+        )

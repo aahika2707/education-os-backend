@@ -1,54 +1,37 @@
 """Response envelope renderer.
 
-Wraps every successful response body in the standard envelope
-``{success, message, data, errors, meta}``. Paginated payloads (from
-:class:`core.pagination.StandardPagination`) have their pagination block lifted
-into ``meta``. Already-enveloped payloads and error bodies (shaped by
+Wraps every successful response body in the spec envelope
+``{status:"success", message, data}``. Paginated payloads (from
+:class:`core.pagination.StandardPagination`) keep their
+``{results, pagination}`` shape as ``data``. Error bodies (shaped by
 :func:`core.exceptions.envelope_exception_handler`) pass through untouched.
 """
 from rest_framework.renderers import JSONRenderer
 
-ENVELOPE_KEYS = {"success", "message", "data", "errors", "meta"}
+SUCCESS_ENVELOPE_KEYS = {"status", "message", "data"}
+ERROR_ENVELOPE_KEYS = {"status", "message", "errors"}
 
 
 class EnvelopeJSONRenderer(JSONRenderer):
-    """DRF renderer that emits the standard response envelope."""
+    """DRF renderer that emits the standard success response envelope."""
 
     def render(self, data, accepted_media_type=None, renderer_context=None):
         renderer_context = renderer_context or {}
         response = renderer_context.get("response")
         status_code = getattr(response, "status_code", 200)
 
-        payload = self._build_envelope(data, status_code, renderer_context)
+        payload = self._build_envelope(data, status_code)
         return super().render(payload, accepted_media_type, renderer_context)
 
     # ------------------------------------------------------------------
-    def _build_envelope(self, data, status_code, renderer_context):
-        # Pass through if already an envelope (e.g. from the exception handler
-        # or a view that built one deliberately).
-        if isinstance(data, dict) and ENVELOPE_KEYS.issubset(data.keys()):
+    def _build_envelope(self, data, status_code):
+        # Error responses are shaped by the exception handler — pass through.
+        if status_code >= 400:
             return data
 
-        success = status_code < 400
-        meta: dict = {}
-        errors: list = []
-
-        # Lift pagination info emitted by StandardPagination into meta.
-        if isinstance(data, dict) and "results" in data and "pagination" in data:
-            meta["pagination"] = data.get("pagination")
-            data = data.get("results")
-
-        if not success:
-            # Errors are normally shaped by the exception handler; this is a
-            # fallback for raw error bodies that reach the renderer.
-            errors = self._coerce_errors(data)
-            return {
-                "success": False,
-                "message": self._default_message(status_code),
-                "data": None,
-                "errors": errors,
-                "meta": meta,
-            }
+        # Pass through if already a success envelope (e.g. a view built one).
+        if isinstance(data, dict) and SUCCESS_ENVELOPE_KEYS.issubset(data.keys()):
+            return data
 
         message = self._default_message(status_code)
         if isinstance(data, dict) and "detail" in data and len(data) == 1:
@@ -56,22 +39,10 @@ class EnvelopeJSONRenderer(JSONRenderer):
             data = None
 
         return {
-            "success": True,
+            "status": "success",
             "message": message,
             "data": data,
-            "errors": errors,
-            "meta": meta,
         }
-
-    @staticmethod
-    def _coerce_errors(data):
-        if data is None:
-            return []
-        if isinstance(data, list):
-            return data
-        if isinstance(data, dict):
-            return [{"field": k, "messages": v if isinstance(v, list) else [v]} for k, v in data.items()]
-        return [{"detail": str(data)}]
 
     @staticmethod
     def _default_message(status_code):

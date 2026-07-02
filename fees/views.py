@@ -10,25 +10,40 @@
 Writes flow through :class:`FeeInvoiceService` (audit + cache-invalidate). All
 business logic (payment recording, status derivation) lives in the service.
 """
+from decimal import Decimal
+
+from django.db.models import Sum
+from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.response import Response
 
+from core.cache import cache_get_or_set, cache_key
 from core.permissions import Role
 from core.viewsets import BaseModelViewSet
 
-from fees.models import FeeInvoice
+from students.models import Student
+
+from fees.models import FeeInvoice, Payment
 from fees.permissions import CanAccessInvoice, FEE_MATRIX, student_ids_for
 from fees.serializers import (
     FeeInvoiceSerializer,
+    FeeInvoiceSpecSerializer,
+    FeeSummarySpecSerializer,
+    PaymentInputSpecSerializer,
+    PaymentResultSpecSerializer,
     PayInputSerializer,
+    ReceiptSpecSerializer,
     TotalDueSerializer,
 )
-from fees.services import FeeInvoiceService
+from fees.services import FEES_PREFIX, FeeInvoiceService
 
 _STAFF_ROLES = set(Role.STAFF)
+# TTL for the per-user fees summary cache (fees:{user_id}); mirrors dashboard.
+TTL_FEES = 300
 
 
 class FeeInvoiceViewSet(BaseModelViewSet):
@@ -95,3 +110,122 @@ class FeeInvoiceViewSet(BaseModelViewSet):
             )
             total = agg or Decimal("0")
         return Response({"total": total})
+
+    # ======================================================================
+    # Mobile API contract v1 (snake_case, {user_id}-parameterized) endpoints.
+    # ======================================================================
+    def _assert_user_access(self, request, user_id):
+        """Non-staff may only use their own accounts user id; staff any."""
+        if getattr(request.user, "role", None) in _STAFF_ROLES:
+            return
+        if str(request.user.id) != str(user_id):
+            raise PermissionDenied("You can only access your own fees.")
+
+    def _student_for_user_id(self, request, user_id):
+        """Resolve the students.Student for an accounts user id (access-checked)."""
+        self._assert_user_access(request, user_id)
+        try:
+            return Student.objects.get(user_id=user_id)
+        except Student.DoesNotExist:
+            raise NotFound("No student profile is linked to this user.")
+
+    def _assert_invoice_access(self, request, invoice):
+        """Invoice-scoped access: staff any; a student/parent only their own /
+        their child's invoices (same ownership model as ``CanAccessInvoice``)."""
+        allowed = student_ids_for(request.user)  # None => staff, unrestricted
+        if allowed is None:
+            return
+        if invoice.student_id not in set(allowed):
+            raise PermissionDenied("You can only access your own fees.")
+
+    # -- GET /api/v1/fees/{user_id} -----------------------------------------
+    @extend_schema(responses={200: FeeSummarySpecSerializer})
+    def by_user(self, request, pk=None):
+        """Spec: ``{ total_due, paid_amount, pending_amount, invoices:[...] }``.
+
+        The ``<uuid:pk>`` on ``/fees/{user_id}`` is the accounts user id here
+        (PUT/PATCH/DELETE on the same path treat it as an invoice pk instead).
+        ``total_due`` = total billed across the student's invoices;
+        ``paid_amount`` = payments received; ``pending_amount`` = outstanding.
+        Cached under ``fees:summary:{user_id}`` (busted on any fee write).
+        """
+        student = self._student_for_user_id(request, pk)
+        repo = self.get_service().repository
+
+        def build():
+            invoices = repo.for_student(student.pk).order_by("due_date", "-created_at")
+            total_due = invoices.aggregate(t=Sum("amount"))["t"] or Decimal("0")
+            paid_amount = (
+                Payment.objects.filter(invoice__student_id=student.pk).aggregate(
+                    t=Sum("amount")
+                )["t"]
+                or Decimal("0")
+            )
+            pending_amount = total_due - paid_amount
+            return {
+                "total_due": total_due,
+                "paid_amount": paid_amount,
+                "pending_amount": pending_amount,
+                "invoices": FeeInvoiceSpecSerializer(invoices, many=True).data,
+            }
+
+        data = cache_get_or_set(
+            cache_key(FEES_PREFIX, "summary", student.user_id), TTL_FEES, build
+        )
+        return Response(data)
+
+    # -- POST /api/v1/fees/payment ------------------------------------------
+    @extend_schema(
+        request=PaymentInputSpecSerializer,
+        responses={201: PaymentResultSpecSerializer},
+    )
+    def make_payment(self, request):
+        """Spec: body ``{ fee_id }`` → ``{ payment_id, receipt_no }``."""
+        serializer = PaymentInputSpecSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        invoice = get_object_or_404(
+            FeeInvoice.objects.select_related("student"), pk=data["fee_id"]
+        )
+        self._assert_invoice_access(request, invoice)
+
+        _, payment = self.get_service().record_payment(
+            invoice,
+            amount=data.get("amount"),
+            method=data.get("method"),
+            reference=data.get("reference", ""),
+        )
+        return Response(
+            {
+                "payment_id": str(payment.pk),
+                "receipt_no": FeeInvoiceService.receipt_no(payment),
+            },
+            status=201,
+        )
+
+    # -- GET /api/v1/fees/receipt/{payment_id} ------------------------------
+    @extend_schema(responses={200: ReceiptSpecSerializer})
+    def receipt(self, request, payment_id=None):
+        """Spec: ``GET /fees/receipt/{payment_id}`` → the payment receipt."""
+        payment = get_object_or_404(
+            Payment.objects.select_related("invoice", "invoice__student"),
+            pk=payment_id,
+        )
+        self._assert_invoice_access(request, payment.invoice)
+        invoice = payment.invoice
+        return Response(
+            {
+                "payment_id": str(payment.pk),
+                "receipt_no": FeeInvoiceService.receipt_no(payment),
+                "fee_id": str(invoice.pk),
+                "title": invoice.title,
+                "term": invoice.term,
+                "amount": payment.amount,
+                "method": payment.method,
+                "paid_at": payment.paid_at,
+                "reference": payment.reference,
+                "student_name": invoice.student.full_name,
+                "roll_no": invoice.student.roll_no,
+            }
+        )

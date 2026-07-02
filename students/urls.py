@@ -5,6 +5,7 @@ paths resolve to ``/api/v1/students/``, ``/api/v1/students/me/``,
 The router registers the ``me`` custom action ahead of the ``{pk}`` detail route,
 so ``/students/me/`` never collides with a UUID lookup.
 """
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from students.views import (
@@ -12,6 +13,7 @@ from students.views import (
     MedicalViewSet,
     StudentAddressViewSet,
     StudentDocumentViewSet,
+    StudentProfileByUserView,
     StudentViewSet,
 )
 
@@ -24,4 +26,13 @@ router.register("student-guardians", GuardianViewSet, basename="student-guardian
 router.register("student-medical", MedicalViewSet, basename="student-medical")
 router.register("student-documents", StudentDocumentViewSet, basename="student-document")
 
-urlpatterns = router.urls
+urlpatterns = [
+    # Spec (canonical mobile) profile route — resolves by accounts user_id.
+    # Declared before the router so it precedes the ViewSet's {pk} detail route.
+    path(
+        "students/<uuid:user_id>",
+        StudentProfileByUserView.as_view(),
+        name="student-profile-by-user",
+    ),
+    *router.urls,
+]

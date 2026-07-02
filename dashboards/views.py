@@ -17,12 +17,15 @@ return the cached payload. RBAC is applied via
 """
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
 from core.permissions import Role, RoleModelPermission
+
+from dashboards.serializers import StudentDashboardSpecSerializer
 
 from dashboards.permissions import (
     FACULTY_DASHBOARD_MATRIX,
@@ -37,6 +40,32 @@ from dashboards.serializers import (
 from dashboards.services import DashboardService
 
 _STAFF_ROLES = set(Role.STAFF)
+
+
+def resolve_student_for_user_id(request, user_id):
+    """Resolve the :class:`students.Student` for an accounts ``user_id``.
+
+    Enforces the contract access rule: a student/parent may only use their OWN
+    ``user_id``; staff/admin may use any (within their college). Raises
+    ``PermissionDenied`` (403) on a cross-user request and ``NotFound`` (404)
+    when no live student profile is linked to the given user id.
+    """
+    user = request.user
+    if user.role not in _STAFF_ROLES and str(user.id) != str(user_id):
+        raise PermissionDenied("You can only access your own data.")
+
+    from students.models import Student
+
+    student = (
+        Student.objects.select_related(
+            "user", "program", "department", "semester", "section"
+        )
+        .filter(user_id=user_id, is_deleted=False)
+        .first()
+    )
+    if student is None:
+        raise NotFound("No student profile is linked to this user.")
+    return student
 
 
 class _DashboardViewMixin:
@@ -67,6 +96,23 @@ class StudentDashboardViewSet(_DashboardViewMixin, ViewSet):
         if student is None:
             raise NotFound("No student profile is linked to this account.")
         return Response(service.student_dashboard(student))
+
+
+class StudentDashboardByUserView(_DashboardViewMixin, APIView):
+    """``GET /api/v1/dashboard/student/{user_id}`` — spec-exact student dashboard.
+
+    ``{user_id}`` is the accounts user id. Access is self-scoped (student may only
+    read their own; staff/admin any); the payload is cached under
+    ``dashboard:{user_id}`` (TTL 30m).
+    """
+
+    permission_matrix = {"get": list(Role.ALL)}
+
+    @extend_schema(responses={200: StudentDashboardSpecSerializer})
+    def get(self, request, user_id):
+        student = resolve_student_for_user_id(request, user_id)
+        service = self.get_service()
+        return Response(service.student_dashboard_spec(student, user_id))
 
 
 class ParentDashboardViewSet(_DashboardViewMixin, ViewSet):

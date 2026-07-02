@@ -75,6 +75,37 @@ class BusRouteAppSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "number", "stops", "driver", "driverPhone"]
 
 
+# --- Mobile API contract v1 serializers (snake_case, spec-exact) -------------
+class TransportStopSpecSerializer(serializers.ModelSerializer):
+    """A stop in the ``GET /api/v1/transport/{user_id}`` response."""
+
+    class Meta:
+        model = BusStop
+        fields = ["name", "time"]
+
+
+class LiveLocationSpecSerializer(serializers.Serializer):
+    """``live_location: { lat, lng }`` (nullable when no live status)."""
+
+    lat = serializers.FloatField(allow_null=True)
+    lng = serializers.FloatField(allow_null=True)
+
+
+class TransportSpecSerializer(serializers.Serializer):
+    """Response for ``GET /api/v1/transport/{user_id}`` (spec-exact).
+
+    ``{ route, driver, phone, live_location: {lat,lng}, eta, occupancy, stops }``.
+    """
+
+    route = serializers.CharField()
+    driver = serializers.CharField(allow_blank=True)
+    phone = serializers.CharField(allow_blank=True)
+    live_location = LiveLocationSpecSerializer()
+    eta = serializers.IntegerField(allow_null=True)
+    occupancy = serializers.IntegerField(allow_null=True)
+    stops = TransportStopSpecSerializer(many=True)
+
+
 class BusLiveStatusAppSerializer(serializers.ModelSerializer):
     """Matches ``types.ts`` ``BusLiveStatus`` shape (camelCase, ``routeId``)."""
 

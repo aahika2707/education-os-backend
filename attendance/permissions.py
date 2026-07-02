@@ -34,6 +34,8 @@ ATTENDANCE_RECORD_MATRIX = {
     "summary": SELF_READERS,
     "overall": SELF_READERS,
     "records": SELF_READERS,
+    # mobile spec read: GET /attendance/{user_id} (self/child scoped in view)
+    "attendance_by_user": SELF_READERS,
     # faculty session endpoints
     "create_session": FACULTY_WRITERS,
     "faculty_sessions": FACULTY_WRITERS,

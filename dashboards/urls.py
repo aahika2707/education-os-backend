@@ -11,11 +11,13 @@ under its role's base prefix. The base prefixes overlap with the students/parent
 faculty apps' own routers, but DRF routers only own the exact paths they register
 (here: the ``.../dashboard`` sub-paths), so mounting alongside those apps is safe.
 """
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from dashboards.views import (
     FacultyDashboardViewSet,
     ParentDashboardViewSet,
+    StudentDashboardByUserView,
     StudentDashboardViewSet,
 )
 
@@ -26,4 +28,11 @@ router.register("students", StudentDashboardViewSet, basename="student-dashboard
 router.register("parent", ParentDashboardViewSet, basename="parent-dashboard")
 router.register("faculty", FacultyDashboardViewSet, basename="faculty-dashboard")
 
-urlpatterns = router.urls
+# Mobile API contract v1 canonical endpoint (mounted under /api/v1/).
+urlpatterns = router.urls + [
+    path(
+        "dashboard/student/<uuid:user_id>",
+        StudentDashboardByUserView.as_view(),
+        name="dashboard-student-by-user",
+    ),
+]

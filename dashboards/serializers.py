@@ -21,6 +21,35 @@ from faculty.serializers import FacultyClassAppSerializer
 from students.serializers import StudentAppSerializer
 
 
+# --- Mobile API contract v1: GET /dashboard/student/{user_id} ----------------
+class NextExamSpecSerializer(serializers.Serializer):
+    """The ``next_exam`` block of the contract student dashboard."""
+
+    subject = serializers.CharField(allow_blank=True)
+    time = serializers.CharField(allow_blank=True)
+    room = serializers.CharField(allow_blank=True)
+
+
+class StudentDashboardSpecSerializer(serializers.Serializer):
+    """Spec-exact (snake_case) shape for ``GET /api/v1/dashboard/student/{user_id}``.
+
+    Matches ``API_CONTRACT_V1`` §Dashboard:
+    ``{ student_name, roll_no, department, semester, attendance_percentage, cgpa,
+    pending_fees, pending_approvals, unread_chats, next_exam:{subject,time,room} }``.
+    """
+
+    student_name = serializers.CharField()
+    roll_no = serializers.CharField()
+    department = serializers.CharField(allow_blank=True)
+    semester = serializers.IntegerField()
+    attendance_percentage = serializers.IntegerField()
+    cgpa = serializers.FloatField()
+    pending_fees = serializers.DecimalField(max_digits=12, decimal_places=2)
+    pending_approvals = serializers.IntegerField()
+    unread_chats = serializers.IntegerField()
+    next_exam = NextExamSpecSerializer(allow_null=True)
+
+
 # --- Student dashboard -------------------------------------------------------
 class StudentDashboardSerializer(serializers.Serializer):
     """Matches ``studentService.StudentDashboard``."""

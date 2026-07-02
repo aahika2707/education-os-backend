@@ -12,25 +12,53 @@ Endpoints (mounted under ``/api/v1/`` by the integrate step):
 Business logic + cache invalidation live in :class:`NotificationService`; the
 viewset stays thin. All reads are scoped to ``request.user``.
 """
+from django.contrib.auth import get_user_model
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.filters import OrderingFilter, SearchFilter
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from core.cache import TTL_NOTIFICATIONS, cache_get_or_set
+from core.permissions import Role
 from core.viewsets import BaseModelViewSet
 
 from notifications.models import Notification
 from notifications.permissions import NOTIFICATIONS_MATRIX
+from notifications.repositories import NotificationRepository
 from notifications.serializers import (
     BroadcastInputSerializer,
     NotificationAppSerializer,
     NotificationSerializer,
+    NotificationSpecSerializer,
     UnreadCountSerializer,
 )
 from notifications.services import NotificationService, user_scope_key
+
+User = get_user_model()
+_STAFF_ROLES = set(Role.STAFF)
+
+
+def _assert_self_or_staff(request_user, user_id) -> None:
+    """Enforce the contract's ``{user_id}`` access rule.
+
+    A student/parent (and any non-staff role) may only use their own
+    ``user_id``; staff/admin may use any.
+    """
+    if getattr(request_user, "role", None) in _STAFF_ROLES:
+        return
+    if str(getattr(request_user, "id", "")) != str(user_id):
+        raise PermissionDenied("You can only access your own resource.")
+
+
+def _resolve_user_or_404(user_id):
+    target = User.objects.filter(pk=user_id).first()
+    if target is None:
+        raise NotFound("User not found.")
+    return target
 
 
 class NotificationViewSet(BaseModelViewSet):
@@ -131,3 +159,62 @@ class NotificationViewSet(BaseModelViewSet):
         service = self.get_service()
         instance = service.broadcast(**serializer.validated_data)
         return Response(NotificationSerializer(instance).data, status=201)
+
+
+# ---------------------------------------------------------------------------
+# Mobile API contract (spec) endpoints — snake_case + {user_id} resolution.
+# ---------------------------------------------------------------------------
+class NotificationsByUserView(APIView):
+    """``GET /api/v1/notifications/{user_id}`` — a user's notifications.
+
+    Returns ``[{ id, title, body, category, is_read, created_at }]`` (newest
+    first). ``{user_id}`` is the accounts user id; the caller must be that user
+    or a staff/admin role.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: NotificationSpecSerializer(many=True)})
+    def get(self, request, user_id):
+        _assert_self_or_staff(request.user, user_id)
+        target = _resolve_user_or_404(user_id)
+        qs = NotificationService(actor=request.user).list_for_user(target)
+        return Response(NotificationSpecSerializer(qs, many=True).data)
+
+
+class NotificationsUnreadByUserView(APIView):
+    """``GET /api/v1/notifications/unread/{user_id}`` — ``{ unread_count }``."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, user_id):
+        _assert_self_or_staff(request.user, user_id)
+        target = _resolve_user_or_404(user_id)
+        count = NotificationService(actor=request.user).unread_count(target)
+        return Response({"unread_count": count})
+
+
+class NotificationReadView(APIView):
+    """``PUT /api/v1/notifications/read/{notification_id}`` — mark one read."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=None, responses={200: NotificationSpecSerializer})
+    def put(self, request, notification_id):
+        instance = NotificationRepository().get_or_none(notification_id)
+        if instance is None:
+            raise NotFound("Notification not found.")
+        # Broadcast rows have no recipient; marking one read would flip it for
+        # everyone, so reject that (mirrors the per-user read action).
+        if instance.recipient_id is None:
+            raise PermissionDenied(
+                "Broadcast notifications cannot be marked read per-user."
+            )
+        if (
+            request.user.role not in _STAFF_ROLES
+            and instance.recipient_id != request.user.id
+        ):
+            raise PermissionDenied("You can only mark your own notifications read.")
+        service = NotificationService(actor=request.user)
+        instance = service.mark_read(instance)
+        return Response(NotificationSpecSerializer(instance).data)

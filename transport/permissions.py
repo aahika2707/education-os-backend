@@ -14,6 +14,8 @@ TRANSPORT_MATRIX = {
     "list": ALL_ROLES,
     "retrieve": ALL_ROLES,
     "live": ALL_ROLES,
+    # Mobile API contract v1: GET /api/v1/transport/{user_id} (self/child or staff).
+    "by_user": ALL_ROLES,
     "create": ADMINS,
     "update": ADMINS,
     "partial_update": ADMINS,
