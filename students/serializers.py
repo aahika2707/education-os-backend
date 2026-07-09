@@ -165,6 +165,7 @@ class StudentAppSerializer(serializers.ModelSerializer):
     year = serializers.SerializerMethodField()
     cgpa = serializers.FloatField(read_only=True)
     avatarColor = serializers.CharField(source="avatar_color", required=False)
+    profilePic = serializers.ImageField(source="profile_pic", read_only=True, allow_null=True)
     mentorName = serializers.CharField(source="mentor_name", required=False)
     bloodGroup = serializers.CharField(source="blood_group", required=False)
 
@@ -182,6 +183,7 @@ class StudentAppSerializer(serializers.ModelSerializer):
             "year",
             "cgpa",
             "avatarColor",
+            "profilePic",
             "email",
             "phone",
             "mentorName",

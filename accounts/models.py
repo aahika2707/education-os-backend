@@ -5,6 +5,8 @@ audit fields, and soft-delete. Because ``User`` itself is the AUTH_USER_MODEL,
 its ``created_by``/``updated_by`` self-FKs are inherited from BaseModel and are
 nullable — safe for the first (self-registered/superuser) rows.
 """
+from __future__ import annotations
+
 import secrets
 import uuid
 from datetime import timedelta
@@ -85,6 +87,9 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel):
     )
     phone = models.CharField(max_length=20, blank=True, default="")
     avatar_color = models.CharField(max_length=9, blank=True, default="")
+    profile_pic = models.ImageField(
+        upload_to="profile_pics/", null=True, blank=True
+    )
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
 

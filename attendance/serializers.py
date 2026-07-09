@@ -33,6 +33,8 @@ class AttendanceRecordSerializer(serializers.ModelSerializer):
             "subject",
             "subject_code",
             "subject_name",
+            "session",
+            "period",
             "date",
             "status",
             "created_at",

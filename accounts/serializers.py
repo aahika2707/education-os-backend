@@ -19,10 +19,11 @@ class UserSerializer(serializers.ModelSerializer):
 
     name = serializers.CharField(source="full_name", read_only=True)
     avatarColor = serializers.CharField(source="avatar_color", read_only=True)
+    profilePic = serializers.ImageField(source="profile_pic", read_only=True, allow_null=True)
 
     class Meta:
         model = User
-        fields = ["id", "name", "email", "role", "avatarColor", "phone", "is_active"]
+        fields = ["id", "name", "email", "role", "avatarColor", "profilePic", "phone", "is_active"]
         read_only_fields = fields
 
 
@@ -95,7 +96,14 @@ class ResetPasswordSerializer(serializers.Serializer):
 
 
 class RegisterSerializer(serializers.Serializer):
-    """Admin-only user creation."""
+    """Admin-only user creation.
+
+    When ``role`` is ``student``, optional student profile fields (``roll_no``,
+    ``admission_no``, ``department``, ``program``, ``semester``, ``section``,
+    ``gender``, ``dob``, ``blood_group``, ``mentor_name``) may be provided.
+    The backend will auto-create the linked :class:`~students.models.Student`
+    profile in a single step — no separate call required.
+    """
 
     email = serializers.EmailField()
     full_name = serializers.CharField(max_length=255)
@@ -105,6 +113,19 @@ class RegisterSerializer(serializers.Serializer):
     )
     phone = serializers.CharField(max_length=20, required=False, allow_blank=True, default="")
     avatar_color = serializers.CharField(max_length=9, required=False, allow_blank=True, default="")
+    profile_pic = serializers.ImageField(required=False, allow_null=True, default=None)
+
+    # --- Optional student profile fields (used only when role == "student") ---
+    roll_no = serializers.CharField(max_length=64, required=False, allow_blank=True, default="")
+    admission_no = serializers.CharField(max_length=64, required=False, allow_blank=True, default="")
+    department = serializers.UUIDField(required=False, allow_null=True, default=None)
+    program = serializers.UUIDField(required=False, allow_null=True, default=None)
+    semester = serializers.UUIDField(required=False, allow_null=True, default=None)
+    section = serializers.UUIDField(required=False, allow_null=True, default=None)
+    gender = serializers.CharField(max_length=16, required=False, allow_blank=True, default="")
+    dob = serializers.DateField(required=False, allow_null=True, default=None)
+    blood_group = serializers.CharField(max_length=8, required=False, allow_blank=True, default="")
+    mentor_name = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
 
     def validate_email(self, value):
         if UserRepository().email_exists(value):
@@ -115,6 +136,18 @@ class RegisterSerializer(serializers.Serializer):
         if value:
             validate_password(value)
         return value
+
+    def validate(self, attrs):
+        role = attrs.get("role")
+        if role == Role.STUDENT:
+            roll_no = attrs.get("roll_no", "")
+            if roll_no:
+                from students.models import Student
+                if Student.objects.filter(roll_no=roll_no).exists():
+                    raise serializers.ValidationError(
+                        {"roll_no": "A student with this roll number already exists."}
+                    )
+        return attrs
 
 
 class SwitchRoleSerializer(serializers.Serializer):

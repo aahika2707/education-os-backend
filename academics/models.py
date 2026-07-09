@@ -17,6 +17,14 @@ class Department(BaseModel):
 
     code = models.CharField(max_length=32, unique=True, db_index=True)
     name = models.CharField(max_length=255)
+    hod = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="hod_departments",
+        help_text="Head of Department (must be a faculty/hod-role user).",
+    )
 
     class Meta:
         ordering = ["code"]
@@ -98,7 +106,7 @@ class Section(BaseModel):
 
 
 class Subject(BaseModel):
-    """A taught subject/course unit belonging to a department."""
+    """A taught subject/course unit belonging to a department and semester."""
 
     code = models.CharField(max_length=32, unique=True, db_index=True)
     name = models.CharField(max_length=255)
@@ -107,6 +115,22 @@ class Subject(BaseModel):
         Department,
         on_delete=models.CASCADE,
         related_name="subjects",
+    )
+    semester = models.ForeignKey(
+        Semester,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="subjects",
+        help_text="The semester this subject is taught in.",
+    )
+    faculty = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="subjects_teaching",
+        help_text="Assigned faculty member for this subject.",
     )
     faculty_name = models.CharField(max_length=255, blank=True, default="")
     color = models.CharField(max_length=9, blank=True, default="")
@@ -118,6 +142,12 @@ class Subject(BaseModel):
 
     def __str__(self):
         return f"{self.code} — {self.name}"
+
+    def save(self, *args, **kwargs):
+        # Auto-sync faculty_name from the linked user if available.
+        if self.faculty_id and not self.faculty_name:
+            self.faculty_name = self.faculty.full_name
+        super().save(*args, **kwargs)
 
 
 class ClassSession(BaseModel):
@@ -158,6 +188,14 @@ class ClassSession(BaseModel):
         Section,
         on_delete=models.CASCADE,
         related_name="sessions",
+    )
+    faculty = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="timetable_sessions",
+        help_text="Faculty taking this session (overrides subject default).",
     )
     day = models.CharField(max_length=3, choices=DAY_CHOICES, db_index=True)
     # Stored as free-form "HH:MM" strings to mirror the mobile app contract.

@@ -1,6 +1,8 @@
 """Auth endpoints. Thin views delegating to services; the envelope renderer and
 exception handler shape all responses. Router-mounted under ``/api/v1/auth/``.
 """
+from __future__ import annotations
+
 import secrets
 
 from django.contrib.auth import get_user_model
@@ -17,6 +19,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
+
+from core.throttles import LoginRateThrottle, PasswordResetRateThrottle
 
 from accounts.permissions import CanRegisterUser
 from accounts.serializers import (
@@ -88,6 +92,7 @@ def _token_payload(user, access: str, refresh: str, active_role: str | None = No
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [LoginRateThrottle]
     serializer_class = LoginSerializer
 
     @extend_schema(
@@ -232,6 +237,7 @@ class ChangePasswordView(APIView):
 
 class ForgotPasswordView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetRateThrottle]
     serializer_class = ForgotPasswordSerializer
 
     @extend_schema(request=ForgotPasswordSerializer, responses=None, summary="Request a password-reset code")
@@ -249,6 +255,7 @@ class ForgotPasswordView(APIView):
 
 class ResetPasswordView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetRateThrottle]
     serializer_class = ResetPasswordSerializer
 
     @extend_schema(request=ResetPasswordSerializer, responses=None, summary="Reset password with a code")
@@ -277,6 +284,59 @@ class RegisterView(APIView):
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
         password = data.pop("password", None) or secrets.token_urlsafe(16)
+
+        # Extract student profile fields before passing to user service.
+        student_fields = {}
+        for key in (
+            "roll_no", "admission_no", "department", "program",
+            "semester", "section", "gender", "dob", "blood_group", "mentor_name",
+        ):
+            value = data.pop(key, None)
+            if value:
+                student_fields[key] = value
+
+        # Handle profile_pic separately (file upload).
+        profile_pic = data.pop("profile_pic", None)
+
         service = UserService(actor=request.user, ip=_client_ip(request))
         user = service.register(password=password, **data)
-        return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
+
+        # Save profile pic on user if provided.
+        if profile_pic:
+            user.profile_pic = profile_pic
+            user.save(update_fields=["profile_pic", "updated_at"])
+
+        # Auto-create student profile if role is student and profile fields given.
+        student_profile = None
+        if user.role == Role.STUDENT:
+            from students.models import Student
+            profile_data = {
+                "user": user,
+                "full_name": user.full_name,
+                "email": user.email,
+                "phone": user.phone,
+                "roll_no": student_fields.get("roll_no", ""),
+                "admission_no": student_fields.get("admission_no", ""),
+                "gender": student_fields.get("gender", ""),
+                "dob": student_fields.get("dob"),
+                "blood_group": student_fields.get("blood_group", ""),
+                "mentor_name": student_fields.get("mentor_name", ""),
+                "avatar_color": user.avatar_color,
+                "profile_pic": profile_pic,
+            }
+            # Link FK fields (UUIDs → _id columns).
+            for fk in ("department", "program", "semester", "section"):
+                fk_val = student_fields.get(fk)
+                if fk_val:
+                    profile_data[f"{fk}_id"] = fk_val
+
+            # Only create if at least roll_no is provided (minimal requirement).
+            if profile_data.get("roll_no"):
+                student_profile = Student.objects.create(**profile_data)
+
+        response_data = UserSerializer(user).data
+        if student_profile:
+            response_data["student_id"] = str(student_profile.id)
+            response_data["roll_no"] = student_profile.roll_no
+
+        return Response(response_data, status=status.HTTP_201_CREATED)

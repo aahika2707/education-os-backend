@@ -6,6 +6,8 @@
   ``permission_matrix`` dict declared on the view.
 - Convenience classes: :class:`IsAdmin`, :class:`IsStaffRole`, :class:`IsSelfOrStaff`.
 """
+from __future__ import annotations
+
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 

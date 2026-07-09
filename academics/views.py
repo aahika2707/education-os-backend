@@ -147,7 +147,7 @@ _WEEKDAY_BY_INDEX = {
 
 
 class DepartmentViewSet(BaseModelViewSet):
-    queryset = Department.objects.all()
+    queryset = Department.objects.select_related("hod").all()
     serializer_class = DepartmentSerializer
     service_class = DepartmentService
     permission_matrix = ADMIN_WRITE_MATRIX
@@ -155,6 +155,17 @@ class DepartmentViewSet(BaseModelViewSet):
     filterset_fields = ["code"]
     search_fields = ["code", "name"]
     ordering_fields = ["code", "name", "created_at"]
+
+    @action(detail=False, methods=["get"], url_path="hod-candidates")
+    def hod_candidates(self, request):
+        """``GET /departments/hod-candidates`` — faculty/hod users for dropdown."""
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        users = User.objects.filter(
+            role__in=[Role.FACULTY, Role.HOD],
+            is_active=True,
+        ).values("id", "full_name", "email", "role").order_by("full_name")
+        return Response(list(users))
 
 
 class ProgramViewSet(BaseModelViewSet):
@@ -190,14 +201,25 @@ class SectionViewSet(BaseModelViewSet):
 
 
 class SubjectViewSet(BaseModelViewSet):
-    queryset = Subject.objects.select_related("department").all()
+    queryset = Subject.objects.select_related("department", "faculty", "semester", "semester__program").all()
     serializer_class = SubjectSerializer
     service_class = SubjectService
     permission_matrix = ADMIN_HOD_WRITE_MATRIX
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ["code", "department", "credits"]
+    filterset_fields = ["code", "department", "semester", "credits", "faculty"]
     search_fields = ["code", "name", "faculty_name"]
     ordering_fields = ["code", "name", "credits", "created_at"]
+
+    @action(detail=False, methods=["get"], url_path="faculty-candidates")
+    def faculty_candidates(self, request):
+        """``GET /subjects/faculty-candidates`` — faculty users for dropdown."""
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        users = User.objects.filter(
+            role=Role.FACULTY,
+            is_active=True,
+        ).values("id", "full_name", "email").order_by("full_name")
+        return Response(list(users))
 
     def retrieve(self, request, *args, **kwargs):
         """``GET /subjects/:id`` — returns the app-shaped Subject (cached)."""

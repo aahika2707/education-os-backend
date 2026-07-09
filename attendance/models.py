@@ -56,6 +56,19 @@ class AttendanceRecord(BaseModel):
         on_delete=models.CASCADE,
         related_name="attendance_records",
     )
+    session = models.ForeignKey(
+        "academics.ClassSession",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="attendance_records",
+        help_text="The timetable period/slot this attendance was marked for.",
+    )
+    period = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Period number (e.g. 1, 2, 3...) for the day.",
+    )
     date = models.DateField(db_index=True)
     status = models.CharField(
         max_length=16,
@@ -70,14 +83,15 @@ class AttendanceRecord(BaseModel):
         verbose_name_plural = "Attendance Records"
         constraints = [
             models.UniqueConstraint(
-                fields=["student", "subject", "date"],
+                fields=["student", "subject", "date", "period"],
                 condition=models.Q(is_deleted=False),
-                name="uniq_attendance_student_subject_date",
+                name="uniq_attendance_student_subject_date_period",
             )
         ]
         indexes = [
             models.Index(fields=["student", "subject"]),
             models.Index(fields=["student", "date"]),
+            models.Index(fields=["session"]),
         ]
 
     def __str__(self):
@@ -85,16 +99,29 @@ class AttendanceRecord(BaseModel):
 
 
 class AttendanceSession(BaseModel):
-    """A faculty-recorded attendance take for a class on a date.
+    """A faculty-recorded attendance take for a class on a date/period.
 
-    Uniqueness is per ``(faculty_class, date)`` so saving the same class/date
-    upserts rather than duplicating (see :class:`AttendanceSessionService`).
+    Uniqueness is per ``(faculty_class, date, period)`` so saving the same
+    class/date/period upserts rather than duplicating.
     """
 
     faculty_class = models.ForeignKey(
         "faculty.FacultyClass",
         on_delete=models.CASCADE,
         related_name="attendance_sessions",
+    )
+    session = models.ForeignKey(
+        "academics.ClassSession",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="attendance_sessions",
+        help_text="The timetable slot this attendance session corresponds to.",
+    )
+    period = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Period number for the day (1, 2, 3...).",
     )
     date = models.DateField(db_index=True)
 

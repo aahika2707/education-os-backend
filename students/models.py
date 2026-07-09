@@ -99,6 +99,9 @@ class Student(BaseModel):
     blood_group = models.CharField(max_length=8, blank=True, default="")
     mentor_name = models.CharField(max_length=255, blank=True, default="")
     avatar_color = models.CharField(max_length=9, blank=True, default="")
+    profile_pic = models.ImageField(
+        upload_to="student_pics/", null=True, blank=True
+    )
     status = models.CharField(
         max_length=16,
         choices=STATUS_CHOICES,

@@ -226,6 +226,8 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": os.environ.get("THROTTLE_ANON", "60/min"),
         "user": os.environ.get("THROTTLE_USER", "1000/day"),
+        "login": os.environ.get("THROTTLE_LOGIN", "5/min"),
+        "password_reset": os.environ.get("THROTTLE_PASSWORD_RESET", "3/min"),
     },
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
@@ -284,5 +286,9 @@ CORS_ALLOW_CREDENTIALS = env_bool("CORS_ALLOW_CREDENTIALS", "True")
 # --- Security (only enforced when DEBUG is False) ----------------------------
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-    SESSION_COOKIE_SECURE = env_bool("DJANGO_SECURE_COOKIES", "False")
-    CSRF_COOKIE_SECURE = env_bool("DJANGO_SECURE_COOKIES", "False")
+    SESSION_COOKIE_SECURE = env_bool("DJANGO_SECURE_COOKIES", "True")
+    CSRF_COOKIE_SECURE = env_bool("DJANGO_SECURE_COOKIES", "True")
+    SECURE_HSTS_SECONDS = int(os.environ.get("SECURE_HSTS_SECONDS", "31536000"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True

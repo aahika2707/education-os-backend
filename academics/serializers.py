@@ -22,9 +22,11 @@ from academics.models import (
 
 # --- CRUD serializers --------------------------------------------------------
 class DepartmentSerializer(serializers.ModelSerializer):
+    hod_name = serializers.CharField(source="hod.full_name", read_only=True, default=None)
+
     class Meta:
         model = Department
-        fields = ["id", "code", "name", "created_at", "updated_at"]
+        fields = ["id", "code", "name", "hod", "hod_name", "created_at", "updated_at"]
         read_only_fields = ["id", "created_at", "updated_at"]
 
 
@@ -73,6 +75,15 @@ class SubjectSerializer(serializers.ModelSerializer):
     department_code = serializers.CharField(
         source="department.code", read_only=True
     )
+    semester_number = serializers.IntegerField(
+        source="semester.number", read_only=True, default=None
+    )
+    program_code = serializers.CharField(
+        source="semester.program.code", read_only=True, default=None
+    )
+    faculty_email = serializers.EmailField(
+        source="faculty.email", read_only=True, default=None
+    )
 
     class Meta:
         model = Subject
@@ -83,21 +94,30 @@ class SubjectSerializer(serializers.ModelSerializer):
             "credits",
             "department",
             "department_code",
+            "semester",
+            "semester_number",
+            "program_code",
+            "faculty",
             "faculty_name",
+            "faculty_email",
             "color",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "faculty_name", "created_at", "updated_at"]
 
 
 class ClassSessionSerializer(serializers.ModelSerializer):
+    faculty_name = serializers.CharField(source="faculty.full_name", read_only=True, default=None)
+
     class Meta:
         model = ClassSession
         fields = [
             "id",
             "subject",
             "section",
+            "faculty",
+            "faculty_name",
             "day",
             "start",
             "end",
