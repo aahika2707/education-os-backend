@@ -1,11 +1,20 @@
-# Render Blueprint: minimal deploy (API + Postgres, free tier).
+# Render Blueprint: API + Postgres + Redis (all free-tier eligible).
 # https://render.com/docs/blueprint-spec
 #
-# Not included on purpose (add later if needed): Redis, a Celery worker/beat
-# service, and ASGI/websocket serving for chat + notifications. Without Redis,
-# CELERY_TASK_ALWAYS_EAGER runs background tasks (OTP/welcome emails, push
-# fan-out) synchronously in-request instead of via a broker — see
-# accounts/tasks.py and notifications/services.py.
+# Redis backs the Django cache and (if you later add ASGI serving) the
+# Channels layer — see config/settings.py. No Celery worker here: Render's
+# free tier doesn't cover Background Worker services (only Web Services,
+# Postgres, and Key Value are free-eligible; a worker needs Starter, ~$7/mo).
+# So CELERY_TASK_ALWAYS_EAGER stays True and background tasks (OTP/welcome
+# emails, push fan-out) run synchronously in-request — see accounts/tasks.py
+# and notifications/services.py. To go async later: add a `type: worker`
+# service running `celery -A config worker -l info` (paid plan required),
+# then flip CELERY_TASK_ALWAYS_EAGER to False.
+#
+# Not included on purpose (add later if needed): a Celery beat service (no
+# periodic tasks are defined yet) and ASGI/websocket serving for chat +
+# notifications — the web service below runs gunicorn (WSGI), so Channels
+# consumers won't accept live connections yet even with a Redis-backed layer.
 databases:
   - name: education-os-db
     plan: free
@@ -13,6 +22,13 @@ databases:
     user: education_os
 
 services:
+  - type: keyvalue
+    name: education-os-redis
+    plan: free
+    # Blocks the public internet; other services in this Blueprint still
+    # reach it over Render's private network via the connection string below.
+    ipAllowList: []
+
   - name: education-os-backend
     type: web
     runtime: docker
@@ -37,7 +53,13 @@ services:
       # your deployed frontend URL(s).
       - key: CORS_ALLOW_ALL_ORIGINS
         value: "True"
-      # No Redis/broker in this minimal setup — run Celery tasks inline.
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: education-os-redis
+          property: connectionString
+      # No worker to consume a broker queue on the free tier, so tasks run
+      # inline instead of via Celery/Redis (see the file header comment).
       - key: CELERY_TASK_ALWAYS_EAGER
         value: "True"
       # First-boot admin account (accounts.User: USERNAME_FIELD=email,
