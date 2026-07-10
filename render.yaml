@@ -1,0 +1,78 @@
+# Render Blueprint: minimal deploy (API + Postgres, free tier).
+# https://render.com/docs/blueprint-spec
+#
+# Not included on purpose (add later if needed): Redis, a Celery worker/beat
+# service, and ASGI/websocket serving for chat + notifications. Without Redis,
+# CELERY_TASK_ALWAYS_EAGER runs background tasks (OTP/welcome emails, push
+# fan-out) synchronously in-request instead of via a broker — see
+# accounts/tasks.py and notifications/services.py.
+databases:
+  - name: education-os-db
+    plan: free
+    databaseName: education_os
+    user: education_os
+
+services:
+  - name: education-os-backend
+    type: web
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health/
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_SECURE_COOKIES
+        value: "True"
+      # .onrender.com wildcard covers whatever subdomain Render assigns this
+      # service; add your custom domain here too if you attach one later.
+      - key: DJANGO_ALLOWED_HOSTS
+        value: ".onrender.com,localhost,127.0.0.1"
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        value: "https://*.onrender.com"
+      # Open for now so the mobile app / admin console can call the API
+      # during testing. Lock this down to explicit origins once you know
+      # your deployed frontend URL(s).
+      - key: CORS_ALLOW_ALL_ORIGINS
+        value: "True"
+      # No Redis/broker in this minimal setup — run Celery tasks inline.
+      - key: CELERY_TASK_ALWAYS_EAGER
+        value: "True"
+      # First-boot admin account (accounts.User: USERNAME_FIELD=email,
+      # REQUIRED_FIELDS=[full_name]). Fill in email/password when Render
+      # prompts you during Blueprint creation.
+      - key: DJANGO_CREATE_SUPERUSER
+        value: "true"
+      - key: DJANGO_SUPERUSER_EMAIL
+        sync: false
+      - key: DJANGO_SUPERUSER_PASSWORD
+        sync: false
+      - key: DJANGO_SUPERUSER_FULL_NAME
+        value: "Admin"
+      # Fresh DB has no users otherwise. Seeds 9 demo role logins
+      # (password: campus123) so the mobile app has something to log into.
+      # Idempotent; unset once you have real data.
+      - key: DJANGO_SEED_DEMO
+        value: "true"
+      - key: POSTGRES_DB
+        fromDatabase:
+          name: education-os-db
+          property: database
+      - key: POSTGRES_USER
+        fromDatabase:
+          name: education-os-db
+          property: user
+      - key: POSTGRES_PASSWORD
+        fromDatabase:
+          name: education-os-db
+          property: password
+      - key: POSTGRES_HOST
+        fromDatabase:
+          name: education-os-db
+          property: host
+      - key: POSTGRES_PORT
+        fromDatabase:
+          name: education-os-db
+          property: port

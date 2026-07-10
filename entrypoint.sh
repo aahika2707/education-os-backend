@@ -20,4 +20,12 @@ if [ "$DJANGO_CREATE_SUPERUSER" = "true" ]; then
   python manage.py createsuperuser --noinput 2>/dev/null || true
 fi
 
+# Optional demo data (9 role logins, password campus123) so a fresh database
+# has something to log in with. Idempotent — safe to leave on, but you can
+# unset DJANGO_SEED_DEMO once you have real data.
+if [ "$DJANGO_SEED_DEMO" = "true" ]; then
+  echo "Seeding demo data ..."
+  python manage.py seed_demo || true
+fi
+
 exec "$@"
