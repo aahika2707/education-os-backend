@@ -150,10 +150,11 @@ class StudentDocumentViewSet(BaseModelViewSet):
 # Mobile API contract (spec) endpoint — snake_case + {user_id} resolution.
 # ---------------------------------------------------------------------------
 class StudentProfileByUserView(APIView):
-    """``GET /api/v1/students/{user_id}`` — a student's profile (snake_case).
+    """``GET /api/v1/students/by-user/{user_id}`` — a student's profile (snake_case).
 
     ``{user_id}`` is the accounts user id; resolved to the linked
     :class:`Student`. Non-staff callers may only fetch their own profile.
+    On its own path so it doesn't shadow the ViewSet's ``{pk}`` detail route.
     """
 
     permission_classes = [IsAuthenticated]

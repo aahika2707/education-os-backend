@@ -210,7 +210,7 @@ class StudentAppSerializer(serializers.ModelSerializer):
 
 # --- Spec (mobile API contract) profile serializer ---------------------------
 class StudentProfileSpecSerializer(serializers.ModelSerializer):
-    """``GET /api/v1/students/{user_id}`` — snake_case profile.
+    """``GET /api/v1/students/by-user/{user_id}`` — snake_case profile.
 
     ``{ name, email, phone, blood_group, mentor, admission_no, roll_no,
     department, semester, section }`` (academic FKs flattened to display values).

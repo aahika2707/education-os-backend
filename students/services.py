@@ -8,6 +8,7 @@ profile are cached under the ``students`` prefix.
 from __future__ import annotations
 
 from core.cache import invalidate_prefix
+from core.permissions import Role
 from core.services import BaseService
 
 from students.models import (
@@ -36,6 +37,26 @@ class StudentService(BaseService):
 
     def invalidate_cache(self, instance=None) -> None:
         invalidate_prefix(STUDENTS_PREFIX)
+
+    def delete(self, instance):
+        """Soft-delete the profile, then deactivate its linked login.
+
+        ``BaseService.delete`` soft-deletes the row (it leaves the default
+        ``objects`` manager, so it drops out of the roster). We also deactivate
+        the linked ``accounts.User`` so a removed student can no longer sign in
+        and no working orphan account lingers — but only when that user has no
+        other active student profile and is not a staff/admin account.
+        """
+        user = instance.user
+        result = super().delete(instance)
+        if user is not None and user.role not in set(Role.STAFF):
+            has_other_profile = (
+                Student.objects.filter(user=user).exclude(pk=instance.pk).exists()
+            )
+            if not has_other_profile and user.is_active:
+                user.is_active = False
+                user.save(update_fields=["is_active"])
+        return result
 
 
 class StudentAddressService(BaseService):
