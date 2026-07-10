@@ -22,7 +22,7 @@ router.register("assignments", AssignmentViewSet, basename="assignments")
 
 urlpatterns = [
     path(
-        "faculty/assignments/",
+        "faculty/assignments",
         AssignmentViewSet.as_view({"get": "faculty_assignments"}),
         name="faculty-assignments",
     ),

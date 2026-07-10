@@ -42,6 +42,32 @@ def _role_of(user) -> str | None:
     return getattr(user, "role", None)
 
 
+def resolve_parent_child(parent_user, user_id):
+    """Return the ``students.Student`` a parent caller may read.
+
+    The parent role reuses the student-scoped ``{user_id}`` mobile endpoints
+    (``/fees``/``/attendance``/``/marks``) for their child's data, addressing
+    them with the parent's own user id (or the child's). Accepts either; raises
+    403/404 otherwise. Uses the primary link when a parent has several children.
+    """
+    from rest_framework.exceptions import NotFound, PermissionDenied
+
+    from guardians.models import ParentLink
+
+    link = (
+        ParentLink.objects.select_related("student")
+        .filter(parent=parent_user)
+        .order_by("-is_primary")
+        .first()
+    )
+    if link is None:
+        raise NotFound("No child is linked to this parent.")
+    child = link.student
+    if str(user_id) not in (str(parent_user.id), str(child.user_id)):
+        raise PermissionDenied("You can only access your child's data.")
+    return child
+
+
 def HasRole(*roles: str) -> type[BasePermission]:
     """Return a permission class admitting authenticated users in ``roles``."""
 

@@ -88,6 +88,10 @@ class NotificationViewSet(BaseModelViewSet):
             return Notification.objects.none()
         if getattr(self, "action", None) in self.ADMIN_ACTIONS:
             return Notification.objects.select_related("recipient").all()
+        # Admin console oversight: admins listing see every notification (not just
+        # their own). Every other role stays strictly self-scoped.
+        if getattr(self, "action", None) == "list" and user.role in Role.ADMINS:
+            return Notification.objects.select_related("recipient").all()
         return self.service_class(actor=user).list_for_user(user)
 
     def list(self, request, *args, **kwargs):

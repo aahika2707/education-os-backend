@@ -1,0 +1,17 @@
+# Dev override (auto-merged by `docker compose`). Bind-mounts the source into the
+# web container and runs gunicorn with --reload so backend code edits are picked up
+# on save (no image rebuild). Remove or ignore for production.
+services:
+  web:
+    environment:
+      # Dev only: let the Vite dev server (and any localhost origin) call the API.
+      CORS_ALLOW_ALL_ORIGINS: "True"
+      # Dev only: Android emulators reach the host machine as 10.0.2.2.
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,0.0.0.0,10.0.2.2"
+    volumes:
+      - .:/app
+    command: >
+      gunicorn config.wsgi:application
+      --bind 0.0.0.0:8000
+      --workers 2
+      --reload

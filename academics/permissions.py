@@ -18,6 +18,8 @@ ADMIN_WRITE_MATRIX = {
     "update": ADMINS,
     "partial_update": ADMINS,
     "destroy": ADMINS,
+    # custom read action: HOD-candidate dropdown for the department form (admin console).
+    "hod_candidates": ADMINS,
 }
 
 # Admin + HOD writes; everyone reads (subjects, sections).
@@ -31,6 +33,8 @@ ADMIN_HOD_WRITE_MATRIX = {
     # custom read actions
     "week": ALL_ROLES,
     "today": ALL_ROLES,
+    # faculty-candidate dropdown for the subject/timetable forms (admin console + HOD).
+    "faculty_candidates": ADMINS_AND_HOD,
 }
 
 # Timetable viewset: all reads, admin writes.

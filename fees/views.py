@@ -22,7 +22,7 @@ from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.response import Response
 
 from core.cache import cache_get_or_set, cache_key
-from core.permissions import Role
+from core.permissions import Role, resolve_parent_child
 from core.viewsets import BaseModelViewSet
 
 from students.models import Student
@@ -122,7 +122,13 @@ class FeeInvoiceViewSet(BaseModelViewSet):
             raise PermissionDenied("You can only access your own fees.")
 
     def _student_for_user_id(self, request, user_id):
-        """Resolve the students.Student for an accounts user id (access-checked)."""
+        """Resolve the students.Student for an accounts user id (access-checked).
+
+        Parents reuse this endpoint for their child, addressing it with their own
+        user id (or the child's), so resolve them to their linked child.
+        """
+        if getattr(request.user, "role", None) == Role.PARENT:
+            return resolve_parent_child(request.user, user_id)
         self._assert_user_access(request, user_id)
         try:
             return Student.objects.get(user_id=user_id)

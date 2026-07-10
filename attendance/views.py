@@ -26,7 +26,7 @@ from rest_framework.filters import OrderingFilter
 from rest_framework.response import Response
 
 from core.cache import TTL_ATTENDANCE, cache_get_or_set, cache_key
-from core.permissions import Role
+from core.permissions import Role, resolve_parent_child
 from core.viewsets import BaseModelViewSet
 
 from faculty.models import FacultyClass, FacultyProfile
@@ -82,6 +82,8 @@ class AttendanceViewSet(BaseModelViewSet):
         is looked up by ``user_id`` (not the student PK).
         """
         user = self.request.user
+        if getattr(user, "role", None) == Role.PARENT:
+            return resolve_parent_child(user, user_id)
         if user.role not in _STAFF_ROLES and str(user.id) != str(user_id):
             raise PermissionDenied("You can only access your own attendance.")
         student = Student.objects.filter(user_id=user_id, is_deleted=False).first()

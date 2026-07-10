@@ -34,7 +34,9 @@ marks_by_user = ExamResultViewSet.as_view(
 )
 
 urlpatterns = [
-    path("marks/", marks_save, name="marks-save"),
+    # No trailing slash — consistent with the trailing_slash=False routers so
+    # clients can address every endpoint the same way.
+    path("marks", marks_save, name="marks-save"),
     path("marks/<uuid:pk>", marks_by_user, name="marks-by-user"),
-    path("faculty/marks/", faculty_marks, name="faculty-marks"),
+    path("faculty/marks", faculty_marks, name="faculty-marks"),
 ] + router.urls

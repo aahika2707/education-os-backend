@@ -50,6 +50,10 @@ class FacultyProfileViewSet(BaseModelViewSet):
     serializer_class = FacultyProfileSerializer
     service_class = FacultyProfileService
     permission_matrix = FACULTY_PROFILE_MATRIX
+    # Constrain the detail lookup to UUIDs so the `/faculty/<pk>` route doesn't
+    # greedily swallow sibling paths like `/faculty/dashboard`, `/faculty/marks`,
+    # or `/faculty/assignments` (served by other apps' routers/views).
+    lookup_value_regex = "[0-9a-fA-F-]{36}"
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["department", "designation"]
     search_fields = ["user__full_name", "user__email", "designation"]
@@ -106,23 +110,47 @@ class FacultyProfileViewSet(BaseModelViewSet):
     @extend_schema(responses={200: FacultyClassAppSerializer(many=True)})
     @action(detail=False, methods=["get"])
     def classes(self, request):
-        """``GET /faculty/classes`` — the current faculty's classes."""
-        profile = self._own_profile_or_404()
+        """``GET /faculty/classes`` — classes to teach.
 
-        def build():
-            qs = (
-                FacultyClass.objects.select_related(
-                    "subject", "semester", "section"
-                )
-                .filter(faculty=profile)
-                .order_by("subject__code")
-            )
-            return [FacultyClassAppSerializer(k).data for k in qs]
-
-        data = cache_get_or_set(
-            cache_key("faculty", "classes", profile.pk), TTL_FACULTY, build
+        Faculty get their own classes (cached). Staff without a faculty profile
+        (admin/principal/hod) get every class, optionally narrowed by
+        ``?faculty=`` or ``?section=`` — this backs the admin console's
+        attendance/marks flows, which record against a class + its roster.
+        """
+        profile = (
+            FacultyProfile.objects.select_related("user", "department")
+            .filter(user=self.request.user)
+            .first()
         )
-        return Response(data)
+        if profile is not None:
+            def build():
+                qs = (
+                    FacultyClass.objects.select_related(
+                        "subject", "semester", "section"
+                    )
+                    .filter(faculty=profile)
+                    .order_by("subject__code")
+                )
+                return [FacultyClassAppSerializer(k).data for k in qs]
+
+            data = cache_get_or_set(
+                cache_key("faculty", "classes", profile.pk), TTL_FACULTY, build
+            )
+            return Response(data)
+
+        qs = (
+            FacultyClass.objects.select_related(
+                "subject", "semester", "section", "faculty"
+            )
+            .order_by("subject__code")
+        )
+        faculty_id = request.query_params.get("faculty")
+        section_id = request.query_params.get("section")
+        if faculty_id:
+            qs = qs.filter(faculty_id=faculty_id)
+        if section_id:
+            qs = qs.filter(section_id=section_id)
+        return Response([FacultyClassAppSerializer(k).data for k in qs])
 
     @extend_schema(responses={200: FacultyClassAppSerializer})
     @action(detail=False, methods=["get"], url_path="classes/(?P<pk>[^/.]+)")

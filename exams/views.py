@@ -22,7 +22,7 @@ from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.response import Response
 
 from core.cache import TTL_TIMETABLE, cache_get_or_set, cache_key
-from core.permissions import Role
+from core.permissions import Role, resolve_parent_child
 from core.viewsets import BaseModelViewSet
 
 from academics.models import Subject
@@ -149,6 +149,8 @@ class ExamResultViewSet(BaseModelViewSet):
         ``user_id``; staff/admin may read any (within college).
         """
         user = self.request.user
+        if getattr(user, "role", None) == Role.PARENT:
+            return resolve_parent_child(user, user_id)
         if user.role not in _STAFF_ROLES and str(user.id) != str(user_id):
             raise PermissionDenied("You can only access your own marks.")
         student = Student.objects.filter(user_id=user_id, is_deleted=False).first()
