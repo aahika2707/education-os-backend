@@ -25,10 +25,13 @@ if [ "$RUN_DB_INIT" = "1" ]; then
   python manage.py migrate --noinput
   python manage.py collectstatic --noinput
 
-  # Optionally create an admin user from env on first boot (dev convenience).
-  # Set DJANGO_CREATE_SUPERUSER=true plus DJANGO_SUPERUSER_USERNAME/EMAIL/PASSWORD.
+  # Create the admin account from env on first boot. createsuperuser --noinput
+  # reads DJANGO_SUPERUSER_EMAIL / _PASSWORD / _FULL_NAME (this model logs in by
+  # email; full_name is REQUIRED_FIELDS). It errors if the user already exists
+  # (fine — that's caught) but SILENTLY does nothing if EMAIL/PASSWORD are unset,
+  # which on a no-seed DB leaves you with no way to log in.
   if [ "$DJANGO_CREATE_SUPERUSER" = "true" ]; then
-    echo "Ensuring superuser '$DJANGO_SUPERUSER_USERNAME' exists ..."
+    echo "Ensuring superuser '$DJANGO_SUPERUSER_EMAIL' exists ..."
     python manage.py createsuperuser --noinput 2>/dev/null || true
   fi
 

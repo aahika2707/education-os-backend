@@ -73,11 +73,11 @@ services:
         sync: false
       - key: DJANGO_SUPERUSER_FULL_NAME
         value: "Admin"
-      # Fresh DB has no users otherwise. Seeds 9 demo role logins
-      # (password: campus123) so the mobile app has something to log into.
-      # Idempotent; unset once you have real data.
+      # No demo data — all records are created manually. The only account
+      # that exists on a fresh DB is the superuser above (role=SUPER_ADMIN),
+      # which is the login used to create everything else.
       - key: DJANGO_SEED_DEMO
-        value: "true"
+        value: "false"
       - key: POSTGRES_DB
         fromDatabase:
           name: education-os-db
