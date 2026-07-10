@@ -4,12 +4,16 @@ Runs DRF's default handler, then reshapes any error response into the standard
 envelope ``{status:"error", message, errors:[...]}`` while preserving the
 original HTTP status code.
 """
+import logging
+
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.http import Http404
 from rest_framework import status as http_status
 from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 from rest_framework.views import exception_handler as drf_exception_handler
+
+logger = logging.getLogger("django.request")
 
 
 def _flatten_errors(detail) -> list:
@@ -63,7 +67,15 @@ def envelope_exception_handler(exc, context):
     response = drf_exception_handler(exc, context)
 
     if response is None:
-        # Unhandled exception -> generic 500 envelope.
+        # Unhandled exception -> generic 500 envelope. Log the full traceback
+        # first: DRF treats a returned Response as "handled", so without this
+        # the real error is swallowed and never reaches the server logs.
+        request = context.get("request") if isinstance(context, dict) else None
+        logger.error(
+            "Unhandled exception in %s",
+            getattr(request, "path", "request"),
+            exc_info=exc,
+        )
         return Response(
             {
                 "status": "error",

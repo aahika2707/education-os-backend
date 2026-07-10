@@ -10,10 +10,18 @@ if [ -n "$POSTGRES_HOST" ]; then
   echo "Postgres is up."
 fi
 
-# Migrate/collectstatic/superuser/seed only need to happen once per deploy,
-# from the web (gunicorn) process — this same image+entrypoint also boots the
-# Celery worker, which would otherwise race the web container on migrations.
-if [ "$1" = "gunicorn" ]; then
+# Migrate/collectstatic/superuser/seed happen once per deploy from the web
+# process. This same image+entrypoint also boots the Celery worker (see
+# docker-compose.yml), which would otherwise race the web container on
+# migrations — so we skip init only for the worker. We match on the whole
+# command ($*), not $1, because the Dockerfile CMD is shell-form: Docker
+# runs it as `/bin/sh -c "gunicorn ..."`, so $1 is "/bin/sh", never "gunicorn".
+case "$*" in
+  *"celery "*worker*|*"celery "*beat*) RUN_DB_INIT=0 ;;
+  *) RUN_DB_INIT=1 ;;
+esac
+
+if [ "$RUN_DB_INIT" = "1" ]; then
   python manage.py migrate --noinput
   python manage.py collectstatic --noinput
 
