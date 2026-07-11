@@ -15,6 +15,13 @@ from core.permissions import Role
 ADMINS = list(Role.ADMINS)
 STAFF = list(Role.STAFF)
 
+# Allocations (subject↔faculty over FacultyClass): every staff role may view the
+# allocation board; HOD + admins may reassign a class to another faculty member.
+ALLOCATION_MATRIX = {
+    "list": STAFF,
+    "reassign": [Role.HOD, *Role.ADMINS],
+}
+
 # Admin full CRUD on FacultyProfile; all staff may read the directory.
 FACULTY_PROFILE_MATRIX = {
     "list": STAFF,

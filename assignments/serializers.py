@@ -157,6 +157,21 @@ class SubmitInputSerializer(serializers.Serializer):
     fileName = serializers.CharField(max_length=512)
 
 
+class FacultyCreateAssignmentSerializer(serializers.Serializer):
+    """Validates ``POST /faculty/assignments`` (``facultyAssignmentService
+    .CreateAssignmentInput``): ``{ classId, title, description, dueDate,
+    maxMarks }``. The subject is derived from the class server-side.
+    """
+
+    classId = serializers.CharField()
+    title = serializers.CharField(max_length=255)
+    description = serializers.CharField(
+        allow_blank=True, required=False, default=""
+    )
+    dueDate = serializers.DateTimeField()
+    maxMarks = serializers.IntegerField(min_value=1)
+
+
 def _now():
     from django.utils import timezone
 

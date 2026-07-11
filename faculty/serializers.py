@@ -129,3 +129,52 @@ class FacultyProfileMeSerializer(serializers.ModelSerializer):
             "role": u.role,
             "avatarColor": u.avatar_color,
         }
+
+
+# --- Allocations (HOD): a subject↔faculty view over FacultyClass -------------
+class SubjectAllocationSerializer(serializers.ModelSerializer):
+    """Maps a :class:`FacultyClass` to ``types.ts`` ``SubjectAllocation``.
+
+    ``facultyId`` is the :class:`FacultyProfile` id — the SAME identifier the
+    HOD analytics endpoints use (``GET /hod/faculty`` returns
+    ``facultyId = str(profile.id)``; see ``analytics/services.py``). Keeping
+    them identical lets the mobile HOD screens cross-reference an allocation's
+    faculty against the faculty directory and pass it straight back to reassign.
+    """
+
+    id = serializers.CharField(read_only=True)
+    subjectId = serializers.CharField(source="subject_id", read_only=True)
+    subjectCode = serializers.CharField(source="subject.code", read_only=True)
+    subjectName = serializers.CharField(source="subject.name", read_only=True)
+    semester = serializers.IntegerField(source="semester.number", read_only=True)
+    section = serializers.CharField(source="section.name", read_only=True)
+    facultyId = serializers.CharField(source="faculty_id", read_only=True)
+    facultyName = serializers.CharField(
+        source="faculty.user.full_name", read_only=True
+    )
+
+    class Meta:
+        model = FacultyClass
+        fields = [
+            "id",
+            "subjectId",
+            "subjectCode",
+            "subjectName",
+            "semester",
+            "section",
+            "facultyId",
+            "facultyName",
+        ]
+
+
+class ReassignAllocationSerializer(serializers.Serializer):
+    """Validates ``POST /allocations/{id}/reassign`` (``{ facultyId, facultyName }``).
+
+    ``facultyId`` is the target :class:`FacultyProfile` id (as surfaced by
+    ``GET /hod/faculty`` / ``GET /allocations``); an accounts user id is also
+    accepted as a fallback. ``facultyName`` is advisory — the name is re-derived
+    from the resolved profile.
+    """
+
+    facultyId = serializers.CharField()
+    facultyName = serializers.CharField(required=False, allow_blank=True)

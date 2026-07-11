@@ -70,6 +70,7 @@ class Command(BaseCommand):
         self._seed_library(student)
         self._seed_hostel(student)
         self._seed_transport()
+        self._seed_campus()
         self._seed_materials(acad, faculty)
         self._seed_quizzes(acad, faculty)
         self._seed_notifications(users)
@@ -265,6 +266,22 @@ class Command(BaseCommand):
                 "subject_codes": ["CS301", "CS501", "CS391"],
             },
         )
+        # Additional faculty profiles so the HOD directory + allocation board
+        # have more than one teacher to reassign a subject between.
+        for key, designation, codes in [
+            ("faculty_anita", "Assistant Professor", ["CS301", "CS391"]),
+            ("faculty_priya", "Assistant Professor", ["CS501"]),
+        ]:
+            extra_user = users.get(key)
+            if extra_user is not None:
+                FacultyProfile.objects.get_or_create(
+                    user=extra_user,
+                    defaults={
+                        "department": acad["cse"],
+                        "designation": designation,
+                        "subject_codes": codes,
+                    },
+                )
         ds = acad["subjects"]["CS301"]
         semester = acad["semester"]
         section = acad["section"]
@@ -600,6 +617,35 @@ class Command(BaseCommand):
                 },
             )
         self.stdout.write(f"  transport: {len(route_specs)} routes")
+
+    # -- campus -----------------------------------------------------------
+    def _seed_campus(self):
+        from campus.models import CampusLocation
+
+        # Mirrors the mobile seed (`src/data/seed`: 10 campus locations).
+        location_specs = [
+            ("Main Academic Block", "academic", "Block B", "Ground-4", 3),
+            ("Central Library", "academic", "Block L", "1-3", 5),
+            ("Computer Science Labs", "academic", "Block B", "2", 4),
+            ("Main Canteen", "food", "Food Court", "Ground", 6),
+            ("Coffee Hub", "food", "Block A", "Ground", 2),
+            ("Sports Complex", "sports", "Sports Arena", "", 9),
+            ("Administrative Office", "admin", "Admin Block", "1", 4),
+            ("Examination Cell", "admin", "Admin Block", "2", 4),
+            ("Nila Hostel Block", "hostel", "Hostel Zone", "", 8),
+            ("Health Centre", "medical", "Block M", "Ground", 7),
+        ]
+        for name, category, building, floor, eta in location_specs:
+            CampusLocation.objects.get_or_create(
+                name=name,
+                defaults={
+                    "category": category,
+                    "building": building,
+                    "floor": floor,
+                    "eta_mins": eta,
+                },
+            )
+        self.stdout.write(f"  campus: {len(location_specs)} locations")
 
     # -- materials --------------------------------------------------------
     def _seed_materials(self, acad, faculty):

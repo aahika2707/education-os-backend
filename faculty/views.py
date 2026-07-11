@@ -16,22 +16,26 @@ flow through the service layer (audit + cache-invalidation) via
 """
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
+from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.filters import OrderingFilter, SearchFilter
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from core.cache import TTL_TIMETABLE, cache_get_or_set, cache_key
-from core.permissions import Role
+from core.permissions import Role, RoleModelPermission
 from core.viewsets import BaseModelViewSet
 
 from faculty.models import FacultyClass, FacultyProfile, RosterEntry
-from faculty.permissions import FACULTY_PROFILE_MATRIX
+from faculty.permissions import ALLOCATION_MATRIX, FACULTY_PROFILE_MATRIX
 from faculty.serializers import (
     FacultyClassAppSerializer,
     FacultyProfileMeSerializer,
     FacultyProfileSerializer,
+    ReassignAllocationSerializer,
     RosterStudentSerializer,
+    SubjectAllocationSerializer,
 )
 from faculty.services import FacultyProfileService
 
@@ -177,3 +181,61 @@ class FacultyProfileViewSet(BaseModelViewSet):
             cache_key("faculty", "roster", klass.pk), TTL_FACULTY, build
         )
         return Response(data)
+
+
+class AllocationViewSet(viewsets.ViewSet):
+    """Subject↔faculty allocations (HOD): list + reassign.
+
+    A ``SubjectAllocation`` is a view over a :class:`FacultyClass` (subject +
+    semester + section + the teaching faculty). ``GET /allocations`` lists them;
+    ``POST /allocations/{id}/reassign`` points a class at a different faculty
+    member. No separate model — the FacultyClass IS the allocation.
+    """
+
+    permission_classes = [IsAuthenticated, RoleModelPermission]
+    permission_matrix = ALLOCATION_MATRIX
+
+    _BASE_QS = FacultyClass.objects.select_related(
+        "subject", "semester", "section", "faculty", "faculty__user"
+    )
+
+    @extend_schema(responses={200: SubjectAllocationSerializer(many=True)})
+    def list(self, request):
+        """``GET /allocations`` — every subject↔faculty allocation (by subject code)."""
+        qs = self._BASE_QS.order_by("subject__code")
+        return Response(SubjectAllocationSerializer(qs, many=True).data)
+
+    @extend_schema(
+        request=ReassignAllocationSerializer,
+        responses={200: SubjectAllocationSerializer},
+    )
+    def reassign(self, request, pk=None):
+        """``POST /allocations/{id}/reassign`` — reassign a class to another faculty."""
+        klass = self._BASE_QS.filter(pk=pk).first()
+        if klass is None:
+            raise NotFound("Allocation not found.")
+
+        serializer = ReassignAllocationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        faculty_id = serializer.validated_data["facultyId"]
+
+        # facultyId is the target FacultyProfile id (what /hod/faculty and
+        # /allocations expose); fall back to an accounts user id for robustness.
+        profile = (
+            FacultyProfile.objects.select_related("user")
+            .filter(pk=faculty_id)
+            .first()
+            or FacultyProfile.objects.select_related("user")
+            .filter(user_id=faculty_id)
+            .first()
+        )
+        if profile is None:
+            raise ValidationError(
+                {"facultyId": "No faculty found for the given id."}
+            )
+
+        klass.faculty = profile
+        klass.save(update_fields=["faculty", "updated_at"])
+
+        klass = self._BASE_QS.get(pk=klass.pk)
+        return Response(SubjectAllocationSerializer(klass).data)

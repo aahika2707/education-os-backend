@@ -23,8 +23,15 @@ router.register("assignments", AssignmentViewSet, basename="assignments")
 urlpatterns = [
     path(
         "faculty/assignments",
-        AssignmentViewSet.as_view({"get": "faculty_assignments"}),
+        AssignmentViewSet.as_view(
+            {"get": "faculty_assignments", "post": "faculty_create"}
+        ),
         name="faculty-assignments",
+    ),
+    path(
+        "faculty/assignments/<uuid:pk>",
+        AssignmentViewSet.as_view({"get": "faculty_detail"}),
+        name="faculty-assignment-detail",
     ),
     *router.urls,
 ]

@@ -42,6 +42,7 @@ urlpatterns = [
     path("api/v1/", include("analytics.urls")),
     path("api/v1/", include("dashboards.urls")),
     path("api/v1/", include("administration.urls")),
+    path("api/v1/", include("campus.urls")),
     # --- OpenAPI schema & docs ---
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(

@@ -29,4 +29,7 @@ ASSIGNMENT_MATRIX = {
     # Custom actions.
     "submit": [Role.STUDENT],
     "faculty_assignments": FACULTY_AND_ADMINS,
+    "faculty_create": FACULTY_AND_ADMINS,
+    # Detail read: faculty (own, enforced in view) + hod/principal + admins.
+    "faculty_detail": list(Role.STAFF),
 }

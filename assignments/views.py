@@ -19,7 +19,7 @@ from django.db.models import Count, Q
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.response import Response
 
@@ -31,6 +31,7 @@ from assignments.permissions import ASSIGNMENT_MATRIX
 from assignments.serializers import (
     AssignmentSerializer,
     FacultyAssignmentSerializer,
+    FacultyCreateAssignmentSerializer,
     StudentAssignmentSerializer,
     SubmitInputSerializer,
 )
@@ -38,6 +39,8 @@ from assignments.services import AssignmentService, SubmissionService
 
 # Local import guard: the student lookup needs the Student model.
 from students.models import Student
+# Faculty classes back the faculty-scoped create/detail (subject derived here).
+from faculty.models import FacultyClass
 
 
 class AssignmentViewSet(BaseModelViewSet):
@@ -161,3 +164,78 @@ class AssignmentViewSet(BaseModelViewSet):
         if page is not None:
             return self.get_paginated_response(data)
         return Response(data)
+
+    # -- faculty create / detail (served on the /faculty/assignments path) --
+    def _faculty_class_for_current_user(self, class_id):
+        """Fetch a FacultyClass, owner-scoped for faculty users (404/403)."""
+        klass = (
+            FacultyClass.objects.select_related(
+                "subject", "faculty", "faculty__user"
+            )
+            .filter(pk=class_id)
+            .first()
+        )
+        if klass is None:
+            raise NotFound("Class not found.")
+        if self.request.user.role == Role.FACULTY:
+            if klass.faculty.user_id != self.request.user.id:
+                raise PermissionDenied(
+                    "You can only manage assignments for your own classes."
+                )
+        return klass
+
+    def _faculty_assignment_or_none(self, pk):
+        return (
+            Assignment.objects.select_related(
+                "faculty_class", "faculty_class__faculty"
+            )
+            .annotate(
+                submission_count=Count(
+                    "submissions", filter=Q(submissions__is_deleted=False)
+                )
+            )
+            .filter(pk=pk)
+            .first()
+        )
+
+    @extend_schema(
+        request=FacultyCreateAssignmentSerializer,
+        responses={201: FacultyAssignmentSerializer},
+    )
+    def faculty_create(self, request):
+        """``POST /faculty/assignments`` — create an assignment for the faculty's class.
+
+        Accepts ``facultyAssignmentService.CreateAssignmentInput``
+        (``{classId,title,description,dueDate,maxMarks}``); the subject is
+        derived from the class. Returns the ``FacultyAssignment`` shape.
+        """
+        serializer = FacultyCreateAssignmentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        klass = self._faculty_class_for_current_user(data["classId"])
+
+        service = AssignmentService(actor=request.user, ip=self._client_ip())
+        assignment = service.create(
+            subject=klass.subject,
+            faculty_class=klass,
+            title=data["title"],
+            description=data.get("description", ""),
+            due_date=data["dueDate"],
+            max_marks=data["maxMarks"],
+        )
+        # Re-fetch with the submission-count annotation for the response shape.
+        assignment = self._faculty_assignment_or_none(assignment.pk)
+        return Response(FacultyAssignmentSerializer(assignment).data, status=201)
+
+    @extend_schema(responses={200: FacultyAssignmentSerializer})
+    def faculty_detail(self, request, pk=None):
+        """``GET /faculty/assignments/{id}`` — one faculty assignment."""
+        assignment = self._faculty_assignment_or_none(pk)
+        if assignment is None:
+            raise NotFound("Assignment not found.")
+        if request.user.role == Role.FACULTY:
+            fc = assignment.faculty_class
+            if fc is None or fc.faculty.user_id != request.user.id:
+                raise PermissionDenied("You can only access your own assignments.")
+        return Response(FacultyAssignmentSerializer(assignment).data)
