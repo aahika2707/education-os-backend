@@ -12,6 +12,8 @@ from collections import OrderedDict
 from decimal import Decimal
 from typing import Any
 
+from rest_framework.exceptions import ValidationError
+
 from core.cache import invalidate_prefix
 from core.services import BaseService
 
@@ -41,6 +43,33 @@ class DepartmentService(BaseService):
     model = Department
     repository_class = DepartmentRepository
     entity_name = "Department"
+
+    def delete(self, instance):
+        """Refuse to delete a department that still owns records.
+
+        Departments are soft-deleted, so the FK ``on_delete`` rules never fire —
+        deleting one would silently orphan its programs/students/subjects/faculty
+        (their FKs would keep pointing at a now-hidden row, which breaks the
+        dependent queries, e.g. ``/programs?department=<id>`` starts 400-ing).
+        Block the delete with a clear message so those records are reassigned or
+        removed first. Counts use the default manager, so already soft-deleted
+        children don't keep a department pinned.
+        """
+        blockers = []
+        for count, noun in (
+            (instance.programs.count(), "program"),
+            (instance.students.count(), "student"),
+            (instance.subjects.count(), "subject"),
+            (instance.faculty_profiles.count(), "faculty member"),
+        ):
+            if count:
+                blockers.append(f"{count} {noun}{'' if count == 1 else 's'}")
+        if blockers:
+            raise ValidationError(
+                f'Cannot delete department "{instance.name}" — it still has '
+                f"{', '.join(blockers)}. Reassign or remove them first."
+            )
+        return super().delete(instance)
 
 
 class ProgramService(BaseService):
