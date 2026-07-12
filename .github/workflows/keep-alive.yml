@@ -1,0 +1,38 @@
+name: Keep Render awake
+
+# Render's free tier spins the web service down after ~15 min idle, so the next
+# request cold-starts for ~30-60s. This job pings the health endpoint on a
+# schedule to keep the container warm (no more cold-start on login).
+#
+# Note: GitHub's scheduled runs can be delayed a few minutes under load. For
+# guaranteed uptime, also point an external monitor (e.g. UptimeRobot, every
+# 5 min) at the same URL — the two together make cold starts effectively never
+# happen.
+on:
+  schedule:
+    - cron: '*/10 * * * *' # every 10 minutes
+  workflow_dispatch: # allow manual runs from the Actions tab
+
+# Don't pile up overlapping runs if one is slow (a cold start can take ~60s).
+concurrency:
+  group: keep-alive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint
+        run: |
+          URL="https://education-os-backend.onrender.com/health/"
+          for i in 1 2 3; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 120 "$URL" || echo 000)
+            echo "attempt $i -> HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "server is awake"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "health check never returned 200"
+          exit 1
