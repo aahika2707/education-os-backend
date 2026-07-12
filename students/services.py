@@ -28,6 +28,10 @@ from students.repositories import (
 
 # Cache key prefix owned by this app.
 STUDENTS_PREFIX = "students"
+# The admin dashboard caches student counts under this prefix (see
+# administration.services); bust it too whenever a student changes so the
+# headline "active students" count stays accurate.
+DASHBOARD_PREFIX = "dashboard"
 
 
 class StudentService(BaseService):
@@ -37,6 +41,7 @@ class StudentService(BaseService):
 
     def invalidate_cache(self, instance=None) -> None:
         invalidate_prefix(STUDENTS_PREFIX)
+        invalidate_prefix(DASHBOARD_PREFIX)
 
     def delete(self, instance):
         """Soft-delete the profile, then deactivate its linked login.

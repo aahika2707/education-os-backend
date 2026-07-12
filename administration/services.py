@@ -224,7 +224,9 @@ class AdminDashboardService:
                 "subjects": Subject.objects.count(),
                 "classSessions": ClassSession.objects.count(),
             },
-            "students": Student.objects.count(),
+            # Enrolled students that are currently ACTIVE (excludes inactive /
+            # alumni) — this is the headline "Students" count on the dashboard.
+            "students": Student.objects.filter(status=Student.STATUS_ACTIVE).count(),
             "facultyProfiles": FacultyProfile.objects.count(),
             "assignments": Assignment.objects.count(),
             "exams": Exam.objects.count(),
