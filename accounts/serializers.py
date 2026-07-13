@@ -129,6 +129,7 @@ class RegisterSerializer(serializers.Serializer):
 
 
     # --- Optional faculty profile fields (used only when role == "faculty") ---
+    
     designation = serializers.CharField(max_length=128, required=False, allow_blank=True, default="")
 
     def validate_email(self, value):
